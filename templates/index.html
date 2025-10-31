@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="description" content="Premier League Statistical Analytics - Professional data analysis">
+    <meta name="theme-color" content="#003d71">
+    <title>Premier League Analytics | Statistical Analysis Platform</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.js"></script>
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <h1 class="logo">Premier League Analytics</h1>
+            <p class="tagline">Professional Statistical Analysis • 32 Seasons • 12,000+ Matches</p>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            
+            <!-- Tab Navigation -->
+            <nav class="tabs">
+                <button class="tab-btn active" data-tab="analytics">Team Analytics</button>
+                <button class="tab-btn" data-tab="data">Historical Data</button>
+                <button class="tab-btn" data-tab="summary">Team Summary</button>
+            </nav>
+
+            <!-- Tab Content: Team Analytics (CDF Charts) -->
+            <div id="analytics-tab" class="tab-content active">
+                <div class="section-header">
+                    <h2>Team Statistical Analysis</h2>
+                    <p class="subtitle">Cumulative Distribution Functions for Goals, Corners, and Match Events</p>
+                </div>
+
+                <!-- Team Selector -->
+                <div class="team-selector-container">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
+                        <h3 style="margin: 0;">Select a Team to Analyze</h3>
+                        <div class="form-group" style="margin: 0; min-width: 200px;">
+                            <select id="season-filter" class="form-select">
+                                <option value="1">Current Season</option>
+                                <option value="2">Last Season</option>
+                                <option value="3">Last 3 Seasons</option>
+                                <option value="10" selected>Last 10 Seasons</option>
+                            </select>
+                        </div>
+                    </div>
+                    <div class="team-grid">
+                        <div class="team-option" data-team="Arsenal">Arsenal</div>
+                        <div class="team-option" data-team="Bournemouth">AFC Bournemouth</div>
+                        <div class="team-option" data-team="Tottenham">Tottenham Hotspur</div>
+                        <div class="team-option" data-team="Sunderland">Sunderland</div>
+                        <div class="team-option" data-team="Man City">Manchester City</div>
+                        <div class="team-option" data-team="Man United">Manchester United</div>
+                        <div class="team-option" data-team="Liverpool">Liverpool</div>
+                        <div class="team-option" data-team="Aston Villa">Aston Villa</div>
+                        <div class="team-option" data-team="Chelsea">Chelsea</div>
+                        <div class="team-option" data-team="Crystal Palace">Crystal Palace</div>
+                        <div class="team-option" data-team="Brentford">Brentford</div>
+                        <div class="team-option" data-team="Newcastle">Newcastle United</div>
+                        <div class="team-option" data-team="Brighton">Brighton & Hove Albion</div>
+                        <div class="team-option" data-team="Everton">Everton</div>
+                        <div class="team-option" data-team="Leeds">Leeds United</div>
+                        <div class="team-option" data-team="Burnley">Burnley</div>
+                        <div class="team-option" data-team="Fulham">Fulham</div>
+                        <div class="team-option" data-team="Nott'm Forest">Nottingham Forest</div>
+                        <div class="team-option" data-team="West Ham">West Ham United</div>
+                        <div class="team-option" data-team="Wolves">Wolverhampton Wanderers</div>
+                    </div>
+                </div>
+
+                <!-- Charts Container -->
+                <div id="charts-container" class="charts-container">
+                    <!-- Goals Scored CDF Chart -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Goals Scored - Cumulative Distribution</h3>
+                            <div class="period-filter">
+                                <button class="period-btn active" data-chart="goals-scored" data-period="full">Full Match</button>
+                                <button class="period-btn" data-chart="goals-scored" data-period="first_half">1st Half</button>
+                                <button class="period-btn" data-chart="goals-scored" data-period="second_half">2nd Half</button>
+                            </div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="goals-scored-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Goals Conceded CDF Chart -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Goals Conceded - Cumulative Distribution</h3>
+                            <div class="period-filter">
+                                <button class="period-btn active" data-chart="goals-conceded" data-period="full">Full Match</button>
+                                <button class="period-btn" data-chart="goals-conceded" data-period="first_half">1st Half</button>
+                                <button class="period-btn" data-chart="goals-conceded" data-period="second_half">2nd Half</button>
+                            </div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="goals-conceded-chart"></canvas>
+                        </div>
+                    </div>
+
+                    <!-- Corners CDF Chart -->
+                    <div class="chart-card">
+                        <div class="chart-header">
+                            <h3>Corners - Cumulative Distribution</h3>
+                            <div class="period-filter">
+                                <button class="period-btn active" data-chart="corners" data-period="full">Full Match</button>
+                                <button class="period-btn" data-chart="corners" data-period="first_half">1st Half</button>
+                                <button class="period-btn" data-chart="corners" data-period="second_half">2nd Half</button>
+                            </div>
+                        </div>
+                        <div class="chart-wrapper">
+                            <canvas id="corners-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tab Content: Data Summary -->
+            <div id="data-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Historical Data Summary</h2>
+                    <p class="subtitle">Comprehensive analysis of Premier League data from football-data.co.uk</p>
+                </div>
+
+                <div id="data-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading historical data summary...</p>
+                </div>
+
+                <div id="data-summary-content"></div>
+            </div>
+
+            <!-- Tab Content: Team Summary -->
+            <div id="summary-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Team Summary Statistics</h2>
+                    <p class="subtitle">Average statistics per game across all historical data</p>
+                </div>
+
+                <div id="summary-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading team summaries...</p>
+                </div>
+
+                <div id="team-summaries-table"></div>
+            </div>
+
+        </div>
+    </main>
+
+    <!-- Prediction Modal -->
+    <div id="prediction-modal" class="modal">
+        <div class="modal-content">
+            <button class="modal-close" onclick="closeModal()">×</button>
+            <div id="prediction-content"></div>
+        </div>
+    </div>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <div class="footer-content">
+                <p>&copy; 2025 Premier League Analytics. Data sourced from football-data.co.uk</p>
+                <div class="disclaimer">
+                    <strong>Disclaimer:</strong> This tool provides statistical analysis for informational purposes only. 
+                    Past performance does not guarantee future results. Please gamble responsibly.
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>
