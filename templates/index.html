@@ -3,9 +3,9 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <meta name="description" content="Premier League Statistical Analytics - Professional data analysis">
+    <meta name="description" content="Degenerate Capital - Quantitative sports betting analytics">
     <meta name="theme-color" content="#003d71">
-    <title>Premier League Analytics | Statistical Analysis Platform</title>
+    <title>Degenerate Capital | Quantitative Degeneracy Since 2025</title>
     <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -16,8 +16,10 @@
     <!-- Header -->
     <header class="header">
         <div class="container">
-            <h1 class="logo">Premier League Analytics</h1>
-            <p class="tagline">Professional Statistical Analysis • 32 Seasons • 12,000+ Matches</p>
+            <div class="logo-text">
+                <h1 class="logo-title">DEGENERATE CAPITAL</h1>
+                <p class="logo-subtitle">Quantitative degeneracy since 2025</p>
+            </div>
         </div>
     </header>
 
@@ -27,13 +29,99 @@
             
             <!-- Tab Navigation -->
             <nav class="tabs">
-                <button class="tab-btn active" data-tab="analytics">Team Analytics</button>
-                <button class="tab-btn" data-tab="data">Historical Data</button>
+                <button class="tab-btn active" data-tab="value">Value Bets</button>
+                <button class="tab-btn" data-tab="table">PL Table</button>
+                <button class="tab-btn" data-tab="analytics">Team Analytics</button>
+                <button class="tab-btn" data-tab="odds">Live Odds</button>
                 <button class="tab-btn" data-tab="summary">Team Summary</button>
             </nav>
 
+            <!-- Tab Content: Value Bets -->
+            <div id="value-tab" class="tab-content active">
+                <div class="value-controls">
+                    <div class="showing-count">
+                        Showing <span id="bet-count">0</span> of <span id="total-bets">0</span> bets
+                    </div>
+                    
+                    <div class="model-selector-section">
+                        <div class="filter-group" style="max-width: 600px;">
+                            <label class="filter-label">AI Probability Model:</label>
+                            <select id="ai-model-selector" class="form-select">
+                                <option value="simple">Simple Historical - Based purely on team's season stats</option>
+                                <option value="opponent">Opponent-Adjusted - Considers relative strength of opponent</option>
+                                <option value="complex" selected>Multi-Factor AI - Complex model with home advantage, form, matchups</option>
+                            </select>
+                            <div class="model-description" id="model-description">
+                                <small>Uses historical data, home advantage factor, weighted recent form, and team strength metrics</small>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="filters-row">
+                        <div class="filter-group">
+                            <label class="filter-label">Filter by Type:</label>
+                            <div class="bet-type-filters">
+                                <button class="filter-chip active" data-filter="all">All</button>
+                                <button class="filter-chip" data-filter="Moneyline">Moneyline</button>
+                                <button class="filter-chip" data-filter="Goals">Goals</button>
+                                <button class="filter-chip" data-filter="Corners">Corners</button>
+                            </div>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label class="filter-label">Region:</label>
+                            <div class="bet-type-filters">
+                                <button class="filter-chip region-chip active" data-region="both">Both</button>
+                                <button class="filter-chip region-chip" data-region="uk">🇬🇧 UK</button>
+                                <button class="filter-chip region-chip" data-region="us">🇺🇸 US</button>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="filters-row-secondary">
+                        <div class="filter-group">
+                            <label class="filter-label">Match Date:</label>
+                            <select id="date-filter" class="form-select-compact">
+                                <option value="all">All Upcoming Matches</option>
+                                <option value="today">Today</option>
+                                <option value="tomorrow">Tomorrow</option>
+                                <option value="weekend">This Weekend</option>
+                                <option value="week">Next 7 Days</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label class="filter-label">Sort by:</label>
+                            <select id="sort-select" class="form-select-compact">
+                                <option value="ev-desc">Expected Value (High-Low)</option>
+                                <option value="ev-asc">Expected Value (Low-High)</option>
+                                <option value="odds-desc">Best Odds (High-Low)</option>
+                                <option value="odds-asc">Best Odds (Low-High)</option>
+                            </select>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label class="filter-label">Minimum EV:</label>
+                            <div class="slider-container">
+                                <input type="range" id="ev-slider" min="-50" max="50" value="-50" step="1" class="ev-slider">
+                                <span id="ev-value" class="ev-value">-50%</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="value-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Analyzing matches and calculating value bets...</p>
+                </div>
+
+                <div id="value-bets-container"></div>
+                
+                <div id="value-timestamp" style="text-align: center; color: var(--gray-600); font-size: 0.875rem; margin-top: 1.5rem;"></div>
+            </div>
+
             <!-- Tab Content: Team Analytics (CDF Charts) -->
-            <div id="analytics-tab" class="tab-content active">
+            <div id="analytics-tab" class="tab-content">
                 <div class="section-header">
                     <h2>Team Statistical Analysis</h2>
                     <p class="subtitle">Cumulative Distribution Functions for Goals, Corners, and Match Events</p>
@@ -125,26 +213,84 @@
                 </div>
             </div>
 
-            <!-- Tab Content: Data Summary -->
-            <div id="data-tab" class="tab-content">
+            <!-- Tab Content: Live Odds -->
+            <div id="odds-tab" class="tab-content">
                 <div class="section-header">
-                    <h2>Historical Data Summary</h2>
-                    <p class="subtitle">Comprehensive analysis of Premier League data from football-data.co.uk</p>
+                    <h2>Live Bookmaker Odds</h2>
+                    <p class="subtitle">Real-time odds comparison for Premier League matches - UK & US bookmakers</p>
                 </div>
 
-                <div id="data-loading" class="loading">
+                <div id="odds-loading" class="loading">
                     <div class="spinner"></div>
-                    <p>Loading historical data summary...</p>
+                    <p>Loading live odds...</p>
                 </div>
 
-                <div id="data-summary-content"></div>
+                <div class="odds-controls-enhanced">
+                    <div class="match-selector-section">
+                        <div class="filter-group" style="flex: 1;">
+                            <label class="filter-label">Select Match:</label>
+                            <select id="match-selector" class="form-select">
+                                <option value="all">All Matches</option>
+                            </select>
+                        </div>
+                    </div>
+                    
+                    <div class="filters-section">
+                        <div class="filter-group">
+                            <label class="filter-label">Show Markets:</label>
+                            <div class="bet-type-filters">
+                                <button class="filter-chip market-chip active" data-market="all">All Markets</button>
+                                <button class="filter-chip market-chip" data-market="h2h">Moneyline</button>
+                                <button class="filter-chip market-chip" data-market="totals">Goals</button>
+                                <button class="filter-chip market-chip" data-market="corners">Corners</button>
+                            </div>
+                        </div>
+                        
+                        <div class="filter-group">
+                            <label class="filter-label">Bookmaker Region:</label>
+                            <div class="bet-type-filters">
+                                <button class="filter-chip odds-region-chip active" data-odds-region="both">Both</button>
+                                <button class="filter-chip odds-region-chip" data-odds-region="uk">🇬🇧 UK Only</button>
+                                <button class="filter-chip odds-region-chip" data-odds-region="us">🇺🇸 US Only</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="odds-content"></div>
+                
+                <div id="odds-timestamp" style="text-align: center; color: var(--gray-600); font-size: 0.875rem; margin-top: 1rem;"></div>
+            </div>
+
+            <!-- Tab Content: Premier League Table -->
+            <div id="table-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Current Premier League Table</h2>
+                    <p class="subtitle">Based on historical season data</p>
+                </div>
+
+                <div id="table-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading table...</p>
+                </div>
+
+                <div id="pl-table-content"></div>
             </div>
 
             <!-- Tab Content: Team Summary -->
             <div id="summary-tab" class="tab-content">
                 <div class="section-header">
                     <h2>Team Summary Statistics</h2>
-                    <p class="subtitle">Average statistics per game across all historical data</p>
+                    <p class="subtitle">Average statistics per game</p>
+                </div>
+                
+                <div class="filter-group" style="max-width: 400px; margin-bottom: 2rem;">
+                    <label class="filter-label">Time Period:</label>
+                    <select id="summary-period-filter" class="form-select">
+                        <option value="1">This Season (Last Year)</option>
+                        <option value="3">Last 3 Seasons</option>
+                        <option value="10" selected>All Time (10+ Years)</option>
+                    </select>
                 </div>
 
                 <div id="summary-loading" class="loading">
@@ -170,7 +316,7 @@
     <footer class="footer">
         <div class="container">
             <div class="footer-content">
-                <p>&copy; 2025 Premier League Analytics. Data sourced from football-data.co.uk</p>
+                <p>&copy; 2025 Degenerate Capital. Data sourced from football-data.co.uk and The Odds API</p>
                 <div class="disclaimer">
                     <strong>Disclaimer:</strong> This tool provides statistical analysis for informational purposes only. 
                     Past performance does not guarantee future results. Please gamble responsibly.

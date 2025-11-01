@@ -88,15 +88,55 @@ body {
 
 /* Header */
 .header {
-    background-color: var(--white);
+    background-color: #f5f1e8;
     border-bottom: 1px solid var(--gray-200);
-    padding: var(--spacing-lg) 0;
+    padding: var(--spacing-xl) 0;
     position: sticky;
     top: 0;
     z-index: 100;
     box-shadow: var(--shadow-sm);
 }
 
+.logo-container {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-lg);
+}
+
+.logo-icon {
+    width: 80px;
+    height: 80px;
+    color: var(--gray-900);
+}
+
+.logo-icon svg {
+    width: 100%;
+    height: 100%;
+}
+
+.logo-text {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.logo-title {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin: 0;
+    letter-spacing: 0.05em;
+}
+
+.logo-subtitle {
+    font-size: 1rem;
+    color: var(--gray-700);
+    font-weight: 400;
+    font-style: italic;
+    margin: 0;
+}
+
+/* Legacy logo class for compatibility */
 .logo {
     font-size: 1.5rem;
     font-weight: 600;
@@ -617,6 +657,23 @@ body {
         padding: var(--spacing-md) 0;
     }
     
+    .logo-container {
+        gap: var(--spacing-md);
+    }
+    
+    .logo-icon {
+        width: 60px;
+        height: 60px;
+    }
+    
+    .logo-title {
+        font-size: 1.5rem;
+    }
+    
+    .logo-subtitle {
+        font-size: 0.875rem;
+    }
+    
     .logo {
         font-size: 1.25rem;
     }
@@ -662,6 +719,38 @@ body {
     .team-selector-container,
     .chart-card {
         padding: var(--spacing-lg);
+    }
+    
+    .value-title {
+        font-size: 2rem;
+    }
+    
+    .filters-row,
+    .filters-row-secondary {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+    }
+    
+    .odds-controls,
+    .odds-controls-enhanced {
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+    
+    .filters-section {
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+    
+    .value-bet-card {
+        grid-template-columns: 1fr;
+        gap: var(--spacing-md);
+        padding: var(--spacing-md);
+    }
+    
+    .bet-stat-col,
+    .bet-odds-col {
+        text-align: left;
     }
 }
 
@@ -719,6 +808,489 @@ body {
     .chart-card {
         page-break-inside: avoid;
     }
+}
+
+/* Value Bets Styles */
+.value-bets-header {
+    margin-bottom: var(--spacing-2xl);
+}
+
+.value-title {
+    font-size: 2.5rem;
+    font-weight: 700;
+    color: #28a745;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--spacing-md);
+}
+
+.value-subtitle {
+    font-size: 1.125rem;
+    color: var(--gray-700);
+    margin-bottom: var(--spacing-2xl);
+}
+
+.value-info-section {
+    background-color: #f8f9fa;
+    border-left: 4px solid #28a745;
+    padding: var(--spacing-xl);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-2xl);
+}
+
+.info-title {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-md);
+}
+
+.highlight {
+    color: #28a745;
+    font-weight: 700;
+}
+
+.info-text {
+    font-size: 0.9375rem;
+    line-height: 1.6;
+    color: var(--gray-700);
+}
+
+.value-controls {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+}
+
+.showing-count {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    margin-bottom: var(--spacing-lg);
+}
+
+.model-selector-section {
+    margin-bottom: var(--spacing-xl);
+    padding-bottom: var(--spacing-xl);
+    border-bottom: 2px solid var(--gray-200);
+}
+
+.model-description {
+    margin-top: var(--spacing-sm);
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: #f0f9ff;
+    border-left: 3px solid var(--accent-blue);
+    border-radius: var(--radius-sm);
+    color: var(--gray-700);
+    font-size: 0.875rem;
+    line-height: 1.4;
+}
+
+.filters-row {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-xl);
+    align-items: end;
+    margin-bottom: var(--spacing-lg);
+}
+
+.filters-row-secondary {
+    display: grid;
+    grid-template-columns: 200px 250px 250px;
+    gap: var(--spacing-xl);
+    align-items: end;
+}
+
+.odds-controls {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+    display: flex;
+    gap: var(--spacing-2xl);
+    flex-wrap: wrap;
+}
+
+.odds-controls-enhanced {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+}
+
+.match-selector-section {
+    margin-bottom: var(--spacing-xl);
+    padding-bottom: var(--spacing-xl);
+    border-bottom: 1px solid var(--gray-200);
+}
+
+.filters-section {
+    display: flex;
+    gap: var(--spacing-2xl);
+    flex-wrap: wrap;
+}
+
+.filter-group {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+}
+
+.filter-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--gray-700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+.bet-type-filters {
+    display: flex;
+    gap: var(--spacing-sm);
+    flex-wrap: wrap;
+}
+
+.filter-chip {
+    padding: var(--spacing-sm) var(--spacing-lg);
+    background-color: var(--gray-100);
+    border: 2px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--gray-700);
+    cursor: pointer;
+    transition: all var(--transition-base);
+}
+
+.filter-chip:hover {
+    background-color: var(--gray-200);
+    border-color: var(--gray-400);
+}
+
+.filter-chip.active {
+    background-color: var(--primary-blue);
+    border-color: var(--primary-blue);
+    color: var(--white);
+}
+
+.form-select-compact {
+    padding: var(--spacing-sm) var(--spacing-md);
+    background-color: var(--white);
+    color: var(--gray-900);
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-md);
+    font-size: 0.9375rem;
+    font-family: var(--font-primary);
+    cursor: pointer;
+}
+
+.slider-container {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-md);
+}
+
+.ev-slider {
+    flex: 1;
+    height: 6px;
+    background: var(--gray-300);
+    outline: none;
+    border-radius: var(--radius-sm);
+}
+
+.ev-slider::-webkit-slider-thumb {
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    background: var(--primary-blue);
+    cursor: pointer;
+    border-radius: 50%;
+}
+
+.ev-slider::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    background: var(--primary-blue);
+    cursor: pointer;
+    border-radius: 50%;
+    border: none;
+}
+
+.ev-value {
+    font-weight: 600;
+    color: var(--primary-blue);
+    min-width: 40px;
+    text-align: right;
+}
+
+.value-bet-card {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-lg) var(--spacing-xl);
+    margin-bottom: var(--spacing-md);
+    display: grid;
+    grid-template-columns: 2fr 120px 120px 100px 120px;
+    gap: var(--spacing-lg);
+    align-items: center;
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-base);
+}
+
+.value-bet-card:hover {
+    box-shadow: var(--shadow-md);
+    transform: translateY(-2px);
+}
+
+.bet-match-info h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-xs);
+}
+
+.bet-market {
+    font-size: 0.875rem;
+    color: var(--gray-600);
+    margin-bottom: var(--spacing-xs);
+}
+
+.bet-time {
+    font-size: 0.8125rem;
+    color: var(--gray-500);
+}
+
+.bet-explanation {
+    font-size: 0.8125rem;
+    color: var(--gray-700);
+    margin-top: var(--spacing-xs);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: #f0f9ff;
+    border-left: 2px solid var(--accent-blue);
+    border-radius: var(--radius-sm);
+}
+
+.bet-stat-col {
+    text-align: center;
+}
+
+.stat-label {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-value {
+    font-size: 1.125rem;
+    font-weight: 700;
+    color: var(--gray-900);
+}
+
+.ai-prob {
+    color: #28a745;
+}
+
+.implied-prob {
+    color: var(--gray-600);
+}
+
+.ev-value-display {
+    color: var(--white);
+    padding: var(--spacing-xs) var(--spacing-sm);
+    border-radius: var(--radius-sm);
+}
+
+.ev-value-display.positive {
+    background-color: #28a745;
+}
+
+.ev-value-display.negative {
+    background-color: #dc3545;
+}
+
+.ev-bar {
+    width: 100%;
+    height: 8px;
+    background-color: var(--gray-200);
+    border-radius: var(--radius-sm);
+    overflow: hidden;
+    margin-top: var(--spacing-xs);
+}
+
+.ev-bar-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #28a745, #5cb85c);
+    transition: width var(--transition-base);
+}
+
+.bet-odds-col {
+    text-align: center;
+}
+
+.odds-value {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-blue);
+    margin-bottom: var(--spacing-xs);
+}
+
+.bookmaker-badge {
+    display: inline-block;
+    padding: var(--spacing-xs) var(--spacing-sm);
+    background-color: #f8f9fa;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--gray-700);
+}
+
+.no-value-bets {
+    text-align: center;
+    padding: var(--spacing-3xl);
+    color: var(--gray-600);
+}
+
+.no-value-bets h3 {
+    font-size: 1.25rem;
+    margin-bottom: var(--spacing-md);
+    color: var(--gray-700);
+}
+
+/* Live Odds Styles */
+.odds-card {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+    transition: all var(--transition-base);
+}
+
+.odds-card:hover {
+    box-shadow: var(--shadow-md);
+}
+
+.odds-header {
+    margin-bottom: var(--spacing-xl);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 2px solid var(--gray-200);
+}
+
+.match-info h3 {
+    font-size: 1.5rem;
+    font-weight: 600;
+    color: var(--primary-blue);
+    margin-bottom: var(--spacing-sm);
+}
+
+.match-time {
+    font-size: 0.9375rem;
+    color: var(--gray-600);
+    font-weight: 500;
+}
+
+.bookmaker-section {
+    margin-bottom: var(--spacing-xl);
+}
+
+.bookmaker-section:last-child {
+    margin-bottom: 0;
+}
+
+.region-title {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-lg);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-sm);
+}
+
+.odds-table-container {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--gray-200);
+}
+
+.odds-table {
+    width: 100%;
+    border-collapse: collapse;
+    background-color: var(--white);
+}
+
+.odds-table thead {
+    background-color: var(--gray-50);
+}
+
+.odds-table th {
+    padding: var(--spacing-md) var(--spacing-lg);
+    text-align: left;
+    font-weight: 600;
+    font-size: 0.875rem;
+    color: var(--gray-700);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid var(--gray-200);
+}
+
+.odds-table td {
+    padding: var(--spacing-md) var(--spacing-lg);
+    border-bottom: 1px solid var(--gray-200);
+    color: var(--gray-900);
+    font-size: 0.9375rem;
+    text-align: left;
+}
+
+.odds-table tbody tr {
+    transition: background-color var(--transition-fast);
+}
+
+.odds-table tbody tr:hover {
+    background-color: var(--gray-50);
+}
+
+.odds-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.bookmaker-name {
+    font-weight: 600;
+    color: var(--primary-blue);
+}
+
+.best-odds {
+    background-color: #d4edda;
+    color: #155724;
+    font-weight: 700;
+    position: relative;
+}
+
+.best-odds::before {
+    content: '★';
+    position: absolute;
+    left: 4px;
+    top: 50%;
+    transform: translateY(-50%);
+    color: #28a745;
+    font-size: 0.75rem;
+}
+
+/* Odds table - center numeric cells */
+.odds-table th:not(:first-child),
+.odds-table td:not(:first-child) {
+    text-align: center;
 }
 
 /* Accessibility */

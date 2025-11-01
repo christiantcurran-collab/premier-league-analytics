@@ -8,11 +8,16 @@ import statistics
 from collections import defaultdict
 import sqlite3
 import os
+import requests
 
 app = Flask(__name__)
 
 # Database setup
 DATABASE = 'premier_league.db'
+
+# The Odds API Configuration
+ODDS_API_KEY = 'dd588f05071256cd9b9b60873719076a'
+ODDS_API_BASE_URL = 'https://api.the-odds-api.com/v4'
 
 def get_db():
     """Get database connection"""
@@ -28,6 +33,505 @@ def init_db():
             db.cursor().executescript(f.read())
         db.commit()
         print("Database initialized!")
+
+class AdvancedBettingAnalyzer:
+    """Advanced statistical analysis engine with EV calculations"""
+    
+    def __init__(self):
+        self.db = get_db()
+    
+    def calculate_implied_probability(self, decimal_odds):
+        """Convert decimal odds to implied probability"""
+        if decimal_odds <= 0:
+            return 0
+        return 1 / decimal_odds
+    
+    def calculate_ev(self, ai_probability, decimal_odds):
+        """Calculate Expected Value (EV) percentage"""
+        implied_prob = self.calculate_implied_probability(decimal_odds)
+        ev = ((ai_probability * decimal_odds) - 1) * 100
+        return ev
+    
+    def get_team_historical_stats(self, team_name, seasons=1):
+        """Get historical statistics for current/recent seasons"""
+        query = """
+            SELECT * FROM matches 
+            WHERE (home_team = ? OR away_team = ?)
+            AND match_date >= date('now', '-{} years')
+            ORDER BY match_date DESC
+        """.format(seasons)
+        
+        cursor = self.db.execute(query, (team_name, team_name))
+        matches = cursor.fetchall()
+        
+        if not matches:
+            return None
+        
+        stats = {
+            'home': {'wins': 0, 'draws': 0, 'losses': 0, 'total': 0},
+            'away': {'wins': 0, 'draws': 0, 'losses': 0, 'total': 0},
+            'goals_scored_home': [],
+            'goals_conceded_home': [],
+            'goals_scored_away': [],
+            'goals_conceded_away': [],
+            'corners_home': [],
+            'corners_away': [],
+            'goals_1h_home': [],
+            'goals_2h_home': [],
+            'goals_1h_away': [],
+            'goals_2h_away': [],
+            'corners_1h_home': [],
+            'corners_2h_home': [],
+            'corners_1h_away': [],
+            'corners_2h_away': []
+        }
+        
+        for match in matches:
+            is_home = match['home_team'] == team_name
+            
+            if is_home:
+                stats['home']['total'] += 1
+                home_goals = match['home_goals_full_time']
+                away_goals = match['away_goals_full_time']
+                
+                if home_goals > away_goals:
+                    stats['home']['wins'] += 1
+                elif home_goals == away_goals:
+                    stats['home']['draws'] += 1
+                else:
+                    stats['home']['losses'] += 1
+                
+                stats['goals_scored_home'].append(home_goals)
+                stats['goals_conceded_home'].append(away_goals)
+                stats['corners_home'].append(match['home_corners_total'])
+                stats['goals_1h_home'].append(match['home_goals_first_half'])
+                stats['goals_2h_home'].append(match['home_goals_second_half'])
+                stats['corners_1h_home'].append(match['home_corners_first_half'])
+                if match['home_corners_total'] and match['home_corners_first_half']:
+                    stats['corners_2h_home'].append(match['home_corners_total'] - match['home_corners_first_half'])
+            else:
+                stats['away']['total'] += 1
+                home_goals = match['home_goals_full_time']
+                away_goals = match['away_goals_full_time']
+                
+                if away_goals > home_goals:
+                    stats['away']['wins'] += 1
+                elif away_goals == home_goals:
+                    stats['away']['draws'] += 1
+                else:
+                    stats['away']['losses'] += 1
+                
+                stats['goals_scored_away'].append(away_goals)
+                stats['goals_conceded_away'].append(home_goals)
+                stats['corners_away'].append(match['away_corners_total'])
+                stats['goals_1h_away'].append(match['away_goals_first_half'])
+                stats['goals_2h_away'].append(match['away_goals_second_half'])
+                stats['corners_1h_away'].append(match['away_corners_first_half'])
+                if match['away_corners_total'] and match['away_corners_first_half']:
+                    stats['corners_2h_away'].append(match['away_corners_total'] - match['away_corners_first_half'])
+        
+        return stats
+    
+    def calculate_ai_probability(self, home_team, away_team, bet_type, market, model='complex'):
+        """
+        Calculate AI probability using different models:
+        - simple: Pure historical stats from current season
+        - opponent: Historical stats adjusted for opponent strength
+        - complex: Multi-factor model with home advantage, form weighting, etc.
+        """
+        home_stats_current = self.get_team_historical_stats(home_team, seasons=1)
+        away_stats_current = self.get_team_historical_stats(away_team, seasons=1)
+        
+        if not home_stats_current or not away_stats_current:
+            return None
+        
+        # Get historical stats for complex model
+        home_stats_historical = None
+        away_stats_historical = None
+        if model == 'complex':
+            home_stats_historical = self.get_team_historical_stats(home_team, seasons=2)
+            away_stats_historical = self.get_team_historical_stats(away_team, seasons=2)
+        
+        if bet_type == 'moneyline':
+            if model == 'simple':
+                return self._calculate_moneyline_simple(home_stats_current, away_stats_current, market)
+            elif model == 'opponent':
+                return self._calculate_moneyline_opponent_adjusted(home_stats_current, away_stats_current, market)
+            else:  # complex
+                return self._calculate_moneyline_probability(
+                    home_stats_current, away_stats_current,
+                    home_stats_historical, away_stats_historical,
+                    market
+                )
+        elif bet_type == 'goals':
+            if model == 'simple':
+                return self._calculate_goals_simple(home_stats_current, away_stats_current, market)
+            elif model == 'opponent':
+                return self._calculate_goals_opponent_adjusted(home_stats_current, away_stats_current, market)
+            else:  # complex
+                return self._calculate_goals_probability(
+                    home_stats_current, away_stats_current,
+                    home_stats_historical, away_stats_historical,
+                    market
+                )
+        elif bet_type == 'corners':
+            # Corners uses same model for all (simple approach)
+            return self._calculate_corners_probability(
+                home_stats_current, away_stats_current,
+                home_stats_historical or home_stats_current,
+                away_stats_historical or away_stats_current,
+                market
+            )
+        
+        return None
+    
+    def _calculate_moneyline_simple(self, home_current, away_current, market):
+        """Simple model: Pure historical win/draw/loss rates from current season"""
+        # Just use this season's stats, no adjustments
+        home_total = home_current['home']['total']
+        away_total = away_current['away']['total']
+        
+        if home_total == 0 or away_total == 0:
+            return None
+        
+        home_win_rate = home_current['home']['wins'] / home_total
+        home_draw_rate = home_current['home']['draws'] / home_total
+        
+        away_win_rate = away_current['away']['wins'] / away_total
+        away_draw_rate = away_current['away']['draws'] / away_total
+        
+        # Average the draw rates
+        draw_prob = (home_draw_rate + away_draw_rate) / 2
+        
+        # Normalize to 100%
+        total = home_win_rate + away_win_rate + draw_prob
+        home_win_prob = home_win_rate / total
+        away_win_prob = away_win_rate / total
+        draw_prob = draw_prob / total
+        
+        if market == 'home_win':
+            return home_win_prob
+        elif market == 'draw':
+            return draw_prob
+        elif market == 'away_win':
+            return away_win_prob
+        
+        return None
+    
+    def get_explanation(self, home_team, away_team, bet_type, market, model='complex'):
+        """Get human-readable explanation of how probability was calculated"""
+        home_stats = self.get_team_historical_stats(home_team, seasons=1)
+        away_stats = self.get_team_historical_stats(away_team, seasons=1)
+        
+        if not home_stats or not away_stats:
+            return ""
+        
+        if bet_type == 'moneyline':
+            if model == 'simple':
+                if market == 'home_win':
+                    return f"{home_team} won {home_stats['home']['wins']} of {home_stats['home']['total']} home games this season ({round(home_stats['home']['wins']/home_stats['home']['total']*100, 1)}%)"
+                elif market == 'away_win':
+                    return f"{away_team} won {away_stats['away']['wins']} of {away_stats['away']['total']} away games this season ({round(away_stats['away']['wins']/away_stats['away']['total']*100, 1)}%)"
+                else:  # draw
+                    home_draw_pct = round(home_stats['home']['draws']/home_stats['home']['total']*100, 1)
+                    away_draw_pct = round(away_stats['away']['draws']/away_stats['away']['total']*100, 1)
+                    return f"{home_team} drew {home_draw_pct}% at home, {away_team} drew {away_draw_pct}% away this season"
+            
+            elif model == 'opponent':
+                home_gd = statistics.mean(home_stats['goals_scored_home']) - statistics.mean(home_stats['goals_conceded_home']) if home_stats['goals_scored_home'] else 0
+                away_gd = statistics.mean(away_stats['goals_scored_away']) - statistics.mean(away_stats['goals_conceded_away']) if away_stats['goals_scored_away'] else 0
+                return f"{home_team} avg goal diff: {round(home_gd, 2)} (home), {away_team}: {round(away_gd, 2)} (away). Adjusted for relative strength"
+            
+            else:  # complex
+                return f"Multi-factor model: home advantage +15%, weighted form (70% current/30% historical), team strength metrics"
+        
+        elif bet_type == 'goals':
+            period, line = market.split('_', 1)
+            over_under, threshold = line.split('_')
+            
+            if model == 'simple':
+                if period == 'full':
+                    home_avg = statistics.mean(home_stats['goals_scored_home']) if home_stats['goals_scored_home'] else 0
+                    away_avg = statistics.mean(away_stats['goals_scored_away']) if away_stats['goals_scored_away'] else 0
+                    return f"Historical avg: {home_team} scores {round(home_avg, 1)} at home, {away_team} scores {round(away_avg, 1)} away"
+                else:
+                    return f"Based on historical {period} goal frequencies for both teams"
+            
+            elif model == 'opponent':
+                home_attack = statistics.mean(home_stats['goals_scored_home']) if home_stats['goals_scored_home'] else 0
+                home_defense = statistics.mean(home_stats['goals_conceded_home']) if home_stats['goals_conceded_home'] else 0
+                away_attack = statistics.mean(away_stats['goals_scored_away']) if away_stats['goals_scored_away'] else 0
+                away_defense = statistics.mean(away_stats['goals_conceded_away']) if away_stats['goals_conceded_away'] else 0
+                expected_total = ((home_attack + away_defense) / 2) + ((away_attack + home_defense) / 2)
+                return f"Expected goals: {round(expected_total, 2)} (based on attack vs defense matchup)"
+            
+            else:  # complex
+                return f"Multi-factor model with form weighting, confidence adjustments, and historical patterns"
+        
+        return ""
+    
+    def _calculate_moneyline_opponent_adjusted(self, home_current, away_current, market):
+        """Opponent-adjusted: Considers relative team strength"""
+        home_total = home_current['home']['total']
+        away_total = away_current['away']['total']
+        
+        if home_total == 0 or away_total == 0:
+            return None
+        
+        # Calculate team strength indicators
+        home_goals_scored_avg = statistics.mean(home_current['goals_scored_home']) if home_current['goals_scored_home'] else 0
+        home_goals_conceded_avg = statistics.mean(home_current['goals_conceded_home']) if home_current['goals_conceded_home'] else 0
+        home_goal_diff = home_goals_scored_avg - home_goals_conceded_avg
+        
+        away_goals_scored_avg = statistics.mean(away_current['goals_scored_away']) if away_current['goals_scored_away'] else 0
+        away_goals_conceded_avg = statistics.mean(away_current['goals_conceded_away']) if away_current['goals_conceded_away'] else 0
+        away_goal_diff = away_goals_scored_avg - away_goals_conceded_avg
+        
+        # Base win rates
+        home_win_rate = home_current['home']['wins'] / home_total
+        away_win_rate = away_current['away']['wins'] / away_total
+        home_draw_rate = home_current['home']['draws'] / home_total
+        away_draw_rate = away_current['away']['draws'] / away_total
+        
+        # Adjust based on relative strength (goal difference)
+        strength_diff = home_goal_diff - away_goal_diff
+        adjustment_factor = strength_diff * 0.05  # 5% adjustment per goal difference
+        
+        home_win_prob = home_win_rate + adjustment_factor
+        away_win_prob = away_win_rate - adjustment_factor
+        draw_prob = (home_draw_rate + away_draw_rate) / 2
+        
+        # Ensure probabilities stay positive
+        home_win_prob = max(0.05, home_win_prob)
+        away_win_prob = max(0.05, away_win_prob)
+        draw_prob = max(0.05, draw_prob)
+        
+        # Normalize
+        total = home_win_prob + away_win_prob + draw_prob
+        home_win_prob /= total
+        away_win_prob /= total
+        draw_prob /= total
+        
+        if market == 'home_win':
+            return home_win_prob
+        elif market == 'draw':
+            return draw_prob
+        elif market == 'away_win':
+            return away_win_prob
+        
+        return None
+    
+    def _calculate_goals_simple(self, home_current, away_current, market):
+        """Simple goals model: Pure historical over/under rates"""
+        period, line = market.split('_', 1)
+        
+        if period == '1h':
+            home_goals = home_current['goals_1h_home']
+            away_goals = away_current['goals_1h_away']
+            home_conceded = [0] * len(home_goals)  # Simplified
+            away_conceded = [0] * len(away_goals)
+        elif period == '2h':
+            home_goals = home_current['goals_2h_home']
+            away_goals = away_current['goals_2h_away']
+            home_conceded = [0] * len(home_goals)
+            away_conceded = [0] * len(away_goals)
+        else:  # full
+            home_goals = home_current['goals_scored_home']
+            away_goals = away_current['goals_scored_away']
+            home_conceded = home_current['goals_conceded_home']
+            away_conceded = away_current['goals_conceded_away']
+        
+        if not home_goals or not away_goals:
+            return None
+        
+        over_under, threshold = line.split('_')
+        threshold = float(threshold)
+        
+        # Combine match totals
+        total_goals_matches = [h + c for h, c in zip(home_goals, home_conceded[:len(home_goals)])]
+        total_goals_matches += [a + c for a, c in zip(away_goals, away_conceded[:len(away_goals)])]
+        
+        if over_under == 'over':
+            count = sum(1 for g in total_goals_matches if g > threshold)
+        else:  # under
+            count = sum(1 for g in total_goals_matches if g < threshold)
+        
+        probability = count / len(total_goals_matches) if total_goals_matches else 0.5
+        
+        return probability
+    
+    def _calculate_goals_opponent_adjusted(self, home_current, away_current, market):
+        """Opponent-adjusted goals: Considers attacking vs defensive strength"""
+        period, line = market.split('_', 1)
+        
+        if period == '1h':
+            home_goals = home_current['goals_1h_home']
+            away_goals = away_current['goals_1h_away']
+        elif period == '2h':
+            home_goals = home_current['goals_2h_home']
+            away_goals = away_current['goals_2h_away']
+        else:  # full
+            home_goals = home_current['goals_scored_home']
+            away_goals = away_current['goals_scored_away']
+        
+        if not home_goals or not away_goals:
+            return None
+        
+        # Calculate attacking and defensive strength
+        home_attack = statistics.mean(home_goals)
+        away_attack = statistics.mean(away_goals)
+        
+        home_defense = statistics.mean(home_current['goals_conceded_home']) if home_current['goals_conceded_home'] else 1.5
+        away_defense = statistics.mean(away_current['goals_conceded_away']) if away_current['goals_conceded_away'] else 1.5
+        
+        # Predict total goals based on matchup
+        expected_home_goals = (home_attack + away_defense) / 2
+        expected_away_goals = (away_attack + home_defense) / 2
+        expected_total = expected_home_goals + expected_away_goals
+        
+        over_under, threshold = line.split('_')
+        threshold = float(threshold)
+        
+        # Use expected total to estimate probability
+        if over_under == 'over':
+            # Higher expected total = higher probability of over
+            diff = expected_total - threshold
+            probability = 0.5 + (diff * 0.15)  # 15% per goal difference
+        else:  # under
+            diff = threshold - expected_total
+            probability = 0.5 + (diff * 0.15)
+        
+        # Clamp to valid range
+        probability = max(0.05, min(0.95, probability))
+        
+        return probability
+    
+    def _calculate_moneyline_probability(self, home_current, away_current, home_hist, away_hist, market):
+        """Calculate probability for Win/Draw/Loss"""
+        # Home advantage factor
+        home_advantage = 0.15
+        
+        # Calculate win rates
+        home_win_rate = home_current['home']['wins'] / max(home_current['home']['total'], 1)
+        away_win_rate = away_current['away']['wins'] / max(away_current['away']['total'], 1)
+        home_draw_rate = home_current['home']['draws'] / max(home_current['home']['total'], 1)
+        away_draw_rate = away_current['away']['draws'] / max(away_current['away']['total'], 1)
+        
+        # Historical adjustments
+        home_win_rate_hist = home_hist['home']['wins'] / max(home_hist['home']['total'], 1)
+        away_win_rate_hist = away_hist['away']['wins'] / max(away_hist['away']['total'], 1)
+        
+        # Weighted average (70% current season, 30% historical)
+        home_win_adj = (home_win_rate * 0.7) + (home_win_rate_hist * 0.3)
+        away_win_adj = (away_win_rate * 0.7) + (away_win_rate_hist * 0.3)
+        draw_rate = ((home_draw_rate + away_draw_rate) / 2)
+        
+        # Apply home advantage
+        home_win_prob = home_win_adj + home_advantage
+        away_win_prob = away_win_adj
+        
+        # Normalize probabilities
+        total = home_win_prob + away_win_prob + draw_rate
+        home_win_prob /= total
+        away_win_prob /= total
+        draw_prob = draw_rate / total
+        
+        if market == 'home_win':
+            return home_win_prob
+        elif market == 'draw':
+            return draw_prob
+        elif market == 'away_win':
+            return away_win_prob
+        
+        return None
+    
+    def _calculate_corners_probability(self, home_current, away_current, home_hist, away_hist, market):
+        """Calculate probability for corners over/under"""
+        period, line = market.split('_', 1)  # e.g., 'full_over_9.5' or '1h_under_5.5'
+        
+        if period == '1h':
+            home_corners = home_current['corners_1h_home'] if home_current['corners_1h_home'] else []
+            away_corners = away_current['corners_1h_away'] if away_current['corners_1h_away'] else []
+        elif period == '2h':
+            home_corners = home_current['corners_2h_home'] if home_current['corners_2h_home'] else []
+            away_corners = away_current['corners_2h_away'] if away_current['corners_2h_away'] else []
+        else:  # full
+            home_corners = home_current['corners_home']
+            away_corners = away_current['corners_away']
+        
+        if not home_corners or not away_corners:
+            return None
+        
+        # Calculate average corners for the matchup
+        avg_home = statistics.mean(home_corners) if home_corners else 0
+        avg_away = statistics.mean(away_corners) if away_corners else 0
+        expected_total = avg_home + avg_away
+        
+        # Parse the line
+        over_under, threshold = line.split('_')
+        threshold = float(threshold)
+        
+        # Calculate probability based on historical distribution
+        all_corners = home_corners + away_corners
+        
+        if over_under == 'over':
+            count_over = sum(1 for c in all_corners if c > threshold)
+            probability = count_over / len(all_corners)
+        else:  # under
+            count_under = sum(1 for c in all_corners if c < threshold)
+            probability = count_under / len(all_corners)
+        
+        # Apply confidence adjustment based on sample size
+        confidence = min(len(all_corners) / 20, 1.0)
+        probability = (probability * confidence) + (0.5 * (1 - confidence))
+        
+        return probability
+    
+    def _calculate_goals_probability(self, home_current, away_current, home_hist, away_hist, market):
+        """Calculate probability for goals over/under"""
+        period, line = market.split('_', 1)  # e.g., 'full_over_2.5' or '1h_under_1.5'
+        
+        if period == '1h':
+            home_goals = home_current['goals_1h_home']
+            away_goals = away_current['goals_1h_away']
+        elif period == '2h':
+            home_goals = home_current['goals_2h_home']
+            away_goals = away_current['goals_2h_away']
+        else:  # full
+            home_goals = home_current['goals_scored_home']
+            away_goals = away_current['goals_scored_away']
+        
+        if not home_goals or not away_goals:
+            return None
+        
+        # Calculate expected total goals
+        avg_home_scored = statistics.mean(home_goals)
+        avg_away_scored = statistics.mean(away_goals)
+        expected_total = avg_home_scored + avg_away_scored
+        
+        # Parse the line
+        over_under, threshold = line.split('_')
+        threshold = float(threshold)
+        
+        # Combine home and away goals for distribution
+        home_conceded = home_current['goals_conceded_home']
+        away_conceded = away_current['goals_conceded_away']
+        
+        total_goals_matches = [h + ac for h, ac in zip(home_goals, home_conceded[:len(home_goals)])]
+        total_goals_matches += [a + hc for a, hc in zip(away_goals, away_conceded[:len(away_goals)])]
+        
+        if over_under == 'over':
+            count_over = sum(1 for g in total_goals_matches if g > threshold)
+            probability = count_over / len(total_goals_matches)
+        else:  # under
+            count_under = sum(1 for g in total_goals_matches if g < threshold)
+            probability = count_under / len(total_goals_matches)
+        
+        # Apply confidence adjustment
+        confidence = min(len(total_goals_matches) / 15, 1.0)
+        probability = (probability * confidence) + (0.5 * (1 - confidence))
+        
+        return probability
 
 class BettingAnalyzer:
     """Statistical analysis engine for betting predictions"""
@@ -236,6 +740,101 @@ class BettingAnalyzer:
         
         return probabilities
 
+# Odds API Functions
+def fetch_premier_league_odds():
+    """Fetch Premier League odds from The Odds API"""
+    try:
+        # Fetch odds for soccer_epl (English Premier League)
+        url = f"{ODDS_API_BASE_URL}/sports/soccer_epl/odds"
+        params = {
+            'apiKey': ODDS_API_KEY,
+            'regions': 'uk,us',  # UK and US bookmakers
+            'markets': 'h2h,spreads,totals',  # Head-to-head, spreads, and totals markets
+            'oddsFormat': 'decimal',
+            'dateFormat': 'iso'
+        }
+        
+        response = requests.get(url, params=params, timeout=10)
+        response.raise_for_status()
+        
+        data = response.json()
+        return data
+        
+    except requests.exceptions.RequestException as e:
+        print(f"Error fetching odds: {e}")
+        return None
+
+def format_odds_data(odds_data):
+    """Format odds data for frontend display"""
+    if not odds_data:
+        return []
+    
+    formatted_matches = []
+    
+    for match in odds_data:
+        home_team = match.get('home_team', '')
+        away_team = match.get('away_team', '')
+        commence_time = match.get('commence_time', '')
+        bookmakers = match.get('bookmakers', [])
+        
+        # Organize bookmakers by region
+        uk_bookmakers = []
+        us_bookmakers = []
+        
+        for bookmaker in bookmakers:
+            bm_name = bookmaker.get('key', '')
+            bm_title = bookmaker.get('title', '')
+            markets = bookmaker.get('markets', [])
+            
+            # Extract h2h (match winner) odds
+            h2h_market = next((m for m in markets if m.get('key') == 'h2h'), None)
+            totals_market = next((m for m in markets if m.get('key') == 'totals'), None)
+            
+            bm_data = {
+                'name': bm_title,
+                'key': bm_name,
+                'h2h': {},
+                'totals': {}
+            }
+            
+            if h2h_market:
+                for outcome in h2h_market.get('outcomes', []):
+                    team_name = outcome.get('name', '')
+                    price = outcome.get('price', 0)
+                    bm_data['h2h'][team_name] = price
+            
+            if totals_market:
+                for outcome in totals_market.get('outcomes', []):
+                    outcome_name = outcome.get('name', '')
+                    point = outcome.get('point', 0)
+                    price = outcome.get('price', 0)
+                    bm_data['totals'][outcome_name] = {
+                        'point': point,
+                        'price': price
+                    }
+            
+            # Categorize by region (rough classification based on common bookmakers)
+            uk_bookmakers_list = ['williamhill', 'skybet', 'paddypower', 'betfair', 'coral', 'ladbrokes', 'unibet']
+            us_bookmakers_list = ['fanduel', 'draftkings', 'betmgm', 'pointsbet', 'caesars', 'barstool']
+            
+            if bm_name in uk_bookmakers_list:
+                uk_bookmakers.append(bm_data)
+            elif bm_name in us_bookmakers_list:
+                us_bookmakers.append(bm_data)
+            else:
+                # Default to UK if unknown
+                uk_bookmakers.append(bm_data)
+        
+        formatted_matches.append({
+            'home_team': home_team,
+            'away_team': away_team,
+            'commence_time': commence_time,
+            'uk_bookmakers': uk_bookmakers,
+            'us_bookmakers': us_bookmakers
+        })
+    
+    return formatted_matches
+
 # Routes
 @app.route('/')
 def index():
@@ -315,9 +914,117 @@ def team_stats(team_name):
     
     return jsonify(stats)
 
+@app.route('/api/premier-league-table')
+def premier_league_table():
+    """Get current Premier League table - current teams only with appropriate time periods"""
+    db = get_db()
+    
+    # Current Premier League teams (2025-26 season)
+    current_pl_teams = [
+        'Arsenal', 'Liverpool', 'Man City', 'Chelsea', 'Tottenham',
+        'Man United', 'Newcastle', 'Brighton', 'Aston Villa', 'West Ham',
+        'Crystal Palace', 'Fulham', 'Wolves', 'Bournemouth', 'Everton',
+        'Brentford', "Nott'm Forest",
+        # Newly promoted teams
+        'Sunderland', 'Leeds', 'Burnley'
+    ]
+    
+    # Newly promoted teams (show only this season's data)
+    newly_promoted = ['Sunderland', 'Leeds', 'Burnley']
+    
+    table = []
+    
+    for team in current_pl_teams:
+        # Determine games to fetch
+        if team in newly_promoted:
+            # This season only (~9 games)
+            limit_games = 20  # Safety margin
+            query_condition = "match_date >= date('now', '-4 months')"
+        else:
+            # Last 38 games (roughly last season)
+            limit_games = 19  # 19 home + 19 away = 38 total
+            query_condition = "1=1"  # Get all recent, limit below
+        
+        # Get home matches
+        cursor = db.execute(f'''
+            SELECT 
+                COUNT(*) as played,
+                SUM(CASE WHEN home_goals_full_time > away_goals_full_time THEN 1 ELSE 0 END) as won,
+                SUM(CASE WHEN home_goals_full_time = away_goals_full_time THEN 1 ELSE 0 END) as drawn,
+                SUM(CASE WHEN home_goals_full_time < away_goals_full_time THEN 1 ELSE 0 END) as lost,
+                SUM(CASE WHEN home_goals_full_time > away_goals_full_time THEN 3
+                         WHEN home_goals_full_time = away_goals_full_time THEN 1
+                         ELSE 0 END) as points,
+                SUM(home_goals_full_time) as goals_for,
+                SUM(away_goals_full_time) as goals_against
+            FROM (
+                SELECT * FROM matches 
+                WHERE home_team = ? AND {query_condition}
+                ORDER BY match_date DESC 
+                LIMIT {limit_games}
+            )
+        ''', (team,))
+        
+        home_data = cursor.fetchone()
+        
+        # Get away matches  
+        cursor = db.execute(f'''
+            SELECT 
+                COUNT(*) as played,
+                SUM(CASE WHEN away_goals_full_time > home_goals_full_time THEN 1 ELSE 0 END) as won,
+                SUM(CASE WHEN away_goals_full_time = home_goals_full_time THEN 1 ELSE 0 END) as drawn,
+                SUM(CASE WHEN away_goals_full_time < home_goals_full_time THEN 1 ELSE 0 END) as lost,
+                SUM(CASE WHEN away_goals_full_time > home_goals_full_time THEN 3
+                         WHEN away_goals_full_time = home_goals_full_time THEN 1
+                         ELSE 0 END) as points,
+                SUM(away_goals_full_time) as goals_for,
+                SUM(home_goals_full_time) as goals_against
+            FROM (
+                SELECT * FROM matches 
+                WHERE away_team = ? AND {query_condition}
+                ORDER BY match_date DESC 
+                LIMIT {limit_games}
+            )
+        ''', (team,))
+        
+        away_data = cursor.fetchone()
+        
+        # Combine home and away
+        total_played = (home_data['played'] or 0) + (away_data['played'] or 0)
+        
+        if total_played > 0:
+            total_won = (home_data['won'] or 0) + (away_data['won'] or 0)
+            total_drawn = (home_data['drawn'] or 0) + (away_data['drawn'] or 0)
+            total_lost = (home_data['lost'] or 0) + (away_data['lost'] or 0)
+            total_points = (home_data['points'] or 0) + (away_data['points'] or 0)
+            total_gf = (home_data['goals_for'] or 0) + (away_data['goals_for'] or 0)
+            total_ga = (home_data['goals_against'] or 0) + (away_data['goals_against'] or 0)
+            
+            table.append({
+                'team': team,
+                'played': total_played,
+                'won': total_won,
+                'drawn': total_drawn,
+                'lost': total_lost,
+                'goals_for': total_gf,
+                'goals_against': total_ga,
+                'goal_difference': total_gf - total_ga,
+                'points': total_points,
+                'win_pct': round(total_won / total_played * 100, 1),
+                'draw_pct': round(total_drawn / total_played * 100, 1),
+                'loss_pct': round(total_lost / total_played * 100, 1),
+                'is_promoted': team in newly_promoted
+            })
+    
+    # Sort by points (desc), then goal difference, then goals for
+    table.sort(key=lambda x: (x['points'], x['goal_difference'], x['goals_for']), reverse=True)
+    
+    return jsonify(table)
+
 @app.route('/api/team-summaries')
 def team_summaries():
     """Get comprehensive statistics for all teams"""
+    years = int(request.args.get('years', 10))  # Get years parameter
     db = get_db()
     
     # Get all unique teams
@@ -334,8 +1041,8 @@ def team_summaries():
                 AVG(away_goals_full_time) as avg_away_conceded,
                 COUNT(*) as home_matches
             FROM matches 
-            WHERE home_team = ? AND match_date >= date('now', '-10 years')
-        ''', (team,))
+            WHERE home_team = ? AND match_date >= date('now', '-{} years')
+        '''.format(years), (team,))
         home_stats = cursor.fetchone()
         
         cursor = db.execute('''
@@ -344,8 +1051,8 @@ def team_summaries():
                 AVG(home_goals_full_time) as avg_home_conceded,
                 COUNT(*) as away_matches
             FROM matches 
-            WHERE away_team = ? AND match_date >= date('now', '-10 years')
-        ''', (team,))
+            WHERE away_team = ? AND match_date >= date('now', '-{} years')
+        '''.format(years), (team,))
         away_stats = cursor.fetchone()
         
         # Corners
@@ -354,8 +1061,8 @@ def team_summaries():
                 AVG(home_corners_total) as avg_home_corners,
                 AVG(away_corners_total) as avg_away_corners_against
             FROM matches 
-            WHERE home_team = ? AND match_date >= date('now', '-10 years')
-        ''', (team,))
+            WHERE home_team = ? AND match_date >= date('now', '-{} years')
+        '''.format(years), (team,))
         home_corners = cursor.fetchone()
         
         cursor = db.execute('''
@@ -363,8 +1070,8 @@ def team_summaries():
                 AVG(away_corners_total) as avg_away_corners,
                 AVG(home_corners_total) as avg_home_corners_against
             FROM matches 
-            WHERE away_team = ? AND match_date >= date('now', '-10 years')
-        ''', (team,))
+            WHERE away_team = ? AND match_date >= date('now', '-{} years')
+        '''.format(years), (team,))
         away_corners = cursor.fetchone()
         
         total_matches = home_stats['home_matches'] + away_stats['away_matches']
@@ -516,6 +1223,262 @@ def team_cdf(team_name):
         'goals_conceded_cdf': calculate_cdf(goals_conceded_combined),
         'corners_cdf': calculate_cdf(corners_combined)
     })
+
+@app.route('/api/live-odds')
+def live_odds():
+    """Get live odds for Premier League matches from The Odds API"""
+    try:
+        odds_data = fetch_premier_league_odds()
+        
+        if odds_data is None:
+            return jsonify({'error': 'Unable to fetch odds from API'}), 500
+        
+        formatted_data = format_odds_data(odds_data)
+        
+        return jsonify({
+            'matches': formatted_data,
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"Error in live_odds endpoint: {e}")
+        return jsonify({'error': 'Internal server error'}), 500
+
+@app.route('/api/value-bets')
+def value_bets():
+    """Get value bets with EV calculations"""
+    try:
+        # Get filters from query params
+        region_filter = request.args.get('region', 'both')  # 'uk', 'us', or 'both'
+        ai_model = request.args.get('model', 'complex')  # 'simple', 'opponent', or 'complex'
+        
+        # Fetch live odds
+        odds_data = fetch_premier_league_odds()
+        
+        if odds_data is None:
+            return jsonify({'error': 'Unable to fetch odds from API'}), 500
+        
+        analyzer = AdvancedBettingAnalyzer()
+        value_bets_list = []
+        
+        # Markets to analyze
+        moneyline_markets = ['home_win', 'draw', 'away_win']
+        goals_markets = [
+            'full_over_2.5', 'full_under_2.5', 'full_over_3.5', 'full_under_3.5',
+            '1h_over_0.5', '1h_under_0.5', '1h_over_1.5', '1h_under_1.5',
+            '2h_over_1.5', '2h_under_1.5'
+        ]
+        corners_markets = [
+            'full_over_9.5', 'full_under_9.5', 'full_over_10.5', 'full_under_10.5',
+            '1h_over_4.5', '1h_under_4.5', '1h_over_5.5', '1h_under_5.5',
+            '2h_over_5.5', '2h_under_5.5'
+        ]
+        
+        for match in odds_data:
+            home_team = match.get('home_team', '')
+            away_team = match.get('away_team', '')
+            commence_time = match.get('commence_time', '')
+            bookmakers = match.get('bookmakers', [])
+            
+            if not bookmakers:
+                continue
+            
+            # Filter bookmakers by region
+            filtered_bookmakers = []
+            uk_bookmakers_list = ['williamhill', 'skybet', 'paddypower', 'betfair', 'coral', 'ladbrokes', 'unibet']
+            us_bookmakers_list = ['fanduel', 'draftkings', 'betmgm', 'pointsbet', 'caesars', 'barstool']
+            
+            for bookmaker in bookmakers:
+                bm_key = bookmaker.get('key', '')
+                if region_filter == 'uk' and bm_key in uk_bookmakers_list:
+                    filtered_bookmakers.append(bookmaker)
+                elif region_filter == 'us' and bm_key in us_bookmakers_list:
+                    filtered_bookmakers.append(bookmaker)
+                elif region_filter == 'both':
+                    filtered_bookmakers.append(bookmaker)
+            
+            # Analyze Moneyline bets
+            h2h_odds = {}
+            for bookmaker in filtered_bookmakers:
+                bm_key = bookmaker.get('key', '')
+                bm_region = 'UK' if bm_key in uk_bookmakers_list else 'US' if bm_key in us_bookmakers_list else 'Other'
+                
+                for market in bookmaker.get('markets', []):
+                    if market.get('key') == 'h2h':
+                        for outcome in market.get('outcomes', []):
+                            team = outcome.get('name')
+                            price = outcome.get('price')
+                            
+                            if team == home_team:
+                                if 'home_win' not in h2h_odds or price > h2h_odds['home_win']['odds']:
+                                    h2h_odds['home_win'] = {'odds': price, 'bookmaker': bookmaker.get('title'), 'region': bm_region}
+                            elif team == away_team:
+                                if 'away_win' not in h2h_odds or price > h2h_odds['away_win']['odds']:
+                                    h2h_odds['away_win'] = {'odds': price, 'bookmaker': bookmaker.get('title'), 'region': bm_region}
+                            elif team == 'Draw':
+                                if 'draw' not in h2h_odds or price > h2h_odds['draw']['odds']:
+                                    h2h_odds['draw'] = {'odds': price, 'bookmaker': bookmaker.get('title'), 'region': bm_region}
+            
+            # Fetch team stats once per match
+            home_stats = analyzer.get_team_historical_stats(home_team, seasons=1)
+            away_stats = analyzer.get_team_historical_stats(away_team, seasons=1)
+            
+            # Create value bets for moneyline
+            for market in moneyline_markets:
+                if market in h2h_odds:
+                    try:
+                        ai_prob = analyzer.calculate_ai_probability(home_team, away_team, 'moneyline', market, ai_model)
+                    except Exception as e:
+                        print(f"Error calculating moneyline probability for {home_team} vs {away_team}: {e}")
+                        ai_prob = None
+                    
+                    if ai_prob:
+                        best_odds = h2h_odds[market]['odds']
+                        implied_prob = analyzer.calculate_implied_probability(best_odds)
+                        ev = analyzer.calculate_ev(ai_prob, best_odds)
+                        
+                        # Calculate historical probability
+                        hist_prob = 0
+                        if home_stats and away_stats:
+                            if market == 'home_win':
+                                hist_prob = home_stats['home']['wins'] / max(home_stats['home']['total'], 1)
+                            elif market == 'away_win':
+                                hist_prob = away_stats['away']['wins'] / max(away_stats['away']['total'], 1)
+                            else:  # draw
+                                home_draws = home_stats['home']['draws'] / max(home_stats['home']['total'], 1)
+                                away_draws = away_stats['away']['draws'] / max(away_stats['away']['total'], 1)
+                                hist_prob = (home_draws + away_draws) / 2
+                        
+                        # Include all bets (positive and negative EV)
+                        market_label = market.replace('_', ' ').title()
+                        if market == 'home_win':
+                            bet_description = f"{home_team} to Win"
+                        elif market == 'away_win':
+                            bet_description = f"{away_team} to Win"
+                        else:
+                            bet_description = "Draw"
+                        
+                        # Generate explanation using already-fetched stats
+                        explanation = ""
+                        if ai_model == 'simple' and home_stats and away_stats:
+                            if market == 'home_win':
+                                explanation = f"{home_team} won {home_stats['home']['wins']} of {home_stats['home']['total']} home games this season ({round(home_stats['home']['wins']/max(home_stats['home']['total'],1)*100, 1)}%)"
+                            elif market == 'away_win':
+                                explanation = f"{away_team} won {away_stats['away']['wins']} of {away_stats['away']['total']} away games this season ({round(away_stats['away']['wins']/max(away_stats['away']['total'],1)*100, 1)}%)"
+                            else:
+                                home_draw_pct = round(home_stats['home']['draws']/max(home_stats['home']['total'],1)*100, 1)
+                                away_draw_pct = round(away_stats['away']['draws']/max(away_stats['away']['total'],1)*100, 1)
+                                explanation = f"{home_team} drew {home_draw_pct}% at home, {away_team} drew {away_draw_pct}% away this season"
+                        elif ai_model == 'opponent' and home_stats and away_stats:
+                            home_gd = (statistics.mean(home_stats['goals_scored_home']) if home_stats['goals_scored_home'] else 0) - (statistics.mean(home_stats['goals_conceded_home']) if home_stats['goals_conceded_home'] else 0)
+                            away_gd = (statistics.mean(away_stats['goals_scored_away']) if away_stats['goals_scored_away'] else 0) - (statistics.mean(away_stats['goals_conceded_away']) if away_stats['goals_conceded_away'] else 0)
+                            explanation = f"{home_team} avg goal diff: {round(home_gd, 2)} (home), {away_team}: {round(away_gd, 2)} (away). Adjusted for relative strength"
+                        elif ai_model == 'complex':
+                            explanation = f"Multi-factor model: home advantage +15%, weighted form (70% current/30% historical), team strength metrics"
+                        
+                        value_bets_list.append({
+                            'match': f"{home_team} vs {away_team}",
+                            'home_team': home_team,
+                            'away_team': away_team,
+                            'commence_time': commence_time,
+                            'bet_type': 'Moneyline',
+                            'market': bet_description,
+                            'ai_probability': round(ai_prob * 100, 2),
+                            'implied_probability': round(implied_prob * 100, 2),
+                            'historical_probability': round(hist_prob * 100, 2),
+                            'ev': round(ev, 2),
+                            'best_odds': round(best_odds, 2),
+                            'bookmaker': h2h_odds[market]['bookmaker'],
+                            'region': h2h_odds[market]['region'],
+                            'explanation': explanation
+                        })
+            
+            # Analyze Goals over/under
+            totals_odds = {}
+            for bookmaker in filtered_bookmakers:
+                bm_key = bookmaker.get('key', '')
+                bm_region = 'UK' if bm_key in uk_bookmakers_list else 'US' if bm_key in us_bookmakers_list else 'Other'
+                
+                for market in bookmaker.get('markets', []):
+                    if market.get('key') == 'totals':
+                        for outcome in market.get('outcomes', []):
+                            over_under = outcome.get('name', '').lower()  # 'Over' or 'Under'
+                            point = outcome.get('point', 0)
+                            price = outcome.get('price')
+                            
+                            market_key = f"{over_under}_{point}"
+                            if market_key not in totals_odds or price > totals_odds[market_key]['odds']:
+                                totals_odds[market_key] = {'odds': price, 'bookmaker': bookmaker.get('title'), 'point': point, 'region': bm_region}
+            
+            # Create value bets for goals (using full match totals for now)
+            for market_key, odds_data in totals_odds.items():
+                over_under, point = market_key.split('_')
+                point = float(point)
+                
+                # Map to our market format
+                goals_market = f"full_{over_under}_{point}"
+                
+                try:
+                    ai_prob = analyzer.calculate_ai_probability(home_team, away_team, 'goals', goals_market, ai_model)
+                except Exception as e:
+                    print(f"Error calculating goals probability for {home_team} vs {away_team}: {e}")
+                    ai_prob = None
+                
+                if ai_prob:
+                    best_odds = odds_data['odds']
+                    implied_prob = analyzer.calculate_implied_probability(best_odds)
+                    ev = analyzer.calculate_ev(ai_prob, best_odds)
+                    
+                    # Include all bets (positive and negative EV)
+                    bet_description = f"{'Over' if over_under == 'over' else 'Under'} {point} Goals"
+                    
+                    # Generate explanation inline to avoid extra DB queries
+                    explanation = ""
+                    if ai_model == 'simple' and home_stats and away_stats:
+                        home_avg = statistics.mean(home_stats['goals_scored_home']) if home_stats['goals_scored_home'] else 0
+                        away_avg = statistics.mean(away_stats['goals_scored_away']) if away_stats['goals_scored_away'] else 0
+                        explanation = f"Historical avg: {home_team} scores {round(home_avg, 1)} at home, {away_team} scores {round(away_avg, 1)} away"
+                    elif ai_model == 'opponent' and home_stats and away_stats:
+                        home_attack = statistics.mean(home_stats['goals_scored_home']) if home_stats['goals_scored_home'] else 0
+                        away_attack = statistics.mean(away_stats['goals_scored_away']) if away_stats['goals_scored_away'] else 0
+                        home_defense = statistics.mean(home_stats['goals_conceded_home']) if home_stats['goals_conceded_home'] else 0
+                        away_defense = statistics.mean(away_stats['goals_conceded_away']) if away_stats['goals_conceded_away'] else 0
+                        expected_total = ((home_attack + away_defense) / 2) + ((away_attack + home_defense) / 2)
+                        explanation = f"Expected goals: {round(expected_total, 2)} (based on attack vs defense matchup)"
+                    elif ai_model == 'complex':
+                        explanation = f"Multi-factor model with form weighting, confidence adjustments, and historical patterns"
+                    
+                    value_bets_list.append({
+                        'match': f"{home_team} vs {away_team}",
+                        'home_team': home_team,
+                        'away_team': away_team,
+                        'commence_time': commence_time,
+                        'bet_type': 'Goals',
+                        'market': bet_description,
+                        'ai_probability': round(ai_prob * 100, 2),
+                        'implied_probability': round(implied_prob * 100, 2),
+                        'historical_probability': round(ai_prob * 100, 2),  # Using AI prob as proxy
+                        'ev': round(ev, 2),
+                        'best_odds': round(best_odds, 2),
+                        'bookmaker': odds_data['bookmaker'],
+                        'region': odds_data['region'],
+                        'explanation': explanation
+                    })
+        
+        # Sort by EV (highest first)
+        value_bets_list.sort(key=lambda x: x['ev'], reverse=True)
+        
+        return jsonify({
+            'value_bets': value_bets_list,
+            'total_bets': len(value_bets_list),
+            'last_updated': datetime.utcnow().isoformat()
+        })
+        
+    except Exception as e:
+        print(f"Error in value_bets endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/data-summary')
 def data_summary():
