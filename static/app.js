@@ -1044,7 +1044,8 @@ function setupValueBetsFilters() {
             const descriptions = {
                 'simple': 'Pure historical stats - Uses only this season\'s win/draw/loss rates and over/under frequencies',
                 'opponent': 'Opponent-adjusted - Considers team strength based on goal difference and attacking/defensive metrics',
-                'complex': 'Multi-factor AI - Uses historical data, home advantage factor, weighted recent form, and team strength metrics'
+                'complex': 'Multi-factor AI - Uses historical data, home advantage factor, weighted recent form, and team strength metrics',
+                'anomaly': 'Bookmaker Anomaly Detector - Finds bookmakers offering 25%+ better odds than the market average'
             };
             
             modelDescription.innerHTML = `<small>${descriptions[state.currentAIModel]}</small>`;
@@ -1208,8 +1209,12 @@ function renderValueBets(bets) {
         const evWidth = bet.ev >= 0 ? Math.min(bet.ev, 100) : 0;
         const evBarClass = bet.ev >= 0 ? 'ev-bar-fill' : 'ev-bar-fill-negative';
         
+        // Check if this is an anomaly bet
+        const isAnomaly = bet.explanation && bet.explanation.includes('Anomaly detected');
+        
         html += `
-            <div class="value-bet-card">
+            <div class="value-bet-card ${isAnomaly ? 'anomaly-bet' : ''}">
+                ${isAnomaly ? '<div class="anomaly-badge">🔥 ANOMALY</div>' : ''}
                 <div class="bet-match-info">
                     <h3>${bet.match}</h3>
                     <div class="bet-market">${bet.bet_type} | ${bet.market}</div>

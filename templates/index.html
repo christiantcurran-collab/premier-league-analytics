@@ -16,9 +16,12 @@
     <!-- Header -->
     <header class="header">
         <div class="container">
-            <div class="logo-text">
-                <h1 class="logo-title">DEGENERATE CAPITAL</h1>
-                <p class="logo-subtitle">Quantitative degeneracy since 2025</p>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div class="logo-text">
+                    <h1 class="logo-title">DEGENERATE CAPITAL</h1>
+                    <p class="logo-subtitle">Quantitative degeneracy since 2025</p>
+                </div>
+                <a href="/logout" class="logout-btn">Logout</a>
             </div>
         </div>
     </header>
@@ -50,6 +53,7 @@
                                 <option value="simple">Simple Historical - Based purely on team's season stats</option>
                                 <option value="opponent">Opponent-Adjusted - Considers relative strength of opponent</option>
                                 <option value="complex" selected>Multi-Factor AI - Complex model with home advantage, form, matchups</option>
+                                <option value="anomaly">Bookmaker Anomaly - Identifies 25%+ better odds vs market average</option>
                             </select>
                             <div class="model-description" id="model-description">
                                 <small>Uses historical data, home advantage factor, weighted recent form, and team strength metrics</small>
@@ -65,6 +69,7 @@
                                 <button class="filter-chip" data-filter="Moneyline">Moneyline</button>
                                 <button class="filter-chip" data-filter="Goals">Goals</button>
                                 <button class="filter-chip" data-filter="Corners">Corners</button>
+                                <button class="filter-chip" data-filter="Player Props">Player Props</button>
                             </div>
                         </div>
                         

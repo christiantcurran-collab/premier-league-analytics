@@ -1,7 +1,7 @@
 # Premier League Betting Advice Application
 # Flask backend with statistical analysis
 
-from flask import Flask, render_template, jsonify, request
+from flask import Flask, render_template, jsonify, request, session, redirect, url_for
 from datetime import datetime, timedelta
 import json
 import statistics
@@ -9,15 +9,20 @@ from collections import defaultdict
 import sqlite3
 import os
 import requests
+import secrets
 
 app = Flask(__name__)
+app.secret_key = secrets.token_hex(32)  # Generate secure secret key for sessions
 
 # Database setup
 DATABASE = 'premier_league.db'
 
 # The Odds API Configuration
-ODDS_API_KEY = 'dd588f05071256cd9b9b60873719076a'
+ODDS_API_KEY = os.environ.get('ODDS_API_KEY', '9bc157f3e9720cc01a71655708f5c3ca')
 ODDS_API_BASE_URL = 'https://api.the-odds-api.com/v4'
+
+# Authentication
+APP_PASSWORD = 'Eva2020'
 
 def get_db():
     """Get database connection"""
@@ -131,6 +136,37 @@ class AdvancedBettingAnalyzer:
                     stats['corners_2h_away'].append(match['away_corners_total'] - match['away_corners_first_half'])
         
         return stats
+    
+    def detect_bookmaker_anomalies(self, bookmaker_odds_list):
+        """
+        Detect bookmaker anomalies - where one bookmaker offers 25%+ better odds
+        bookmaker_odds_list: list of dicts with {'bookmaker': name, 'odds': decimal_odds}
+        Returns: dict with average_odds, best_odds, anomaly info
+        """
+        if not bookmaker_odds_list or len(bookmaker_odds_list) < 2:
+            return None
+        
+        odds_values = [bm['odds'] for bm in bookmaker_odds_list]
+        avg_odds = statistics.mean(odds_values)
+        best_odds_data = max(bookmaker_odds_list, key=lambda x: x['odds'])
+        best_odds = best_odds_data['odds']
+        
+        # Calculate how much better the best odds is compared to average
+        if avg_odds > 0:
+            percentage_better = ((best_odds - avg_odds) / avg_odds) * 100
+        else:
+            percentage_better = 0
+        
+        is_anomaly = percentage_better >= 25  # 25% threshold
+        
+        return {
+            'average_odds': round(avg_odds, 2),
+            'best_odds': round(best_odds, 2),
+            'best_bookmaker': best_odds_data['bookmaker'],
+            'percentage_better': round(percentage_better, 1),
+            'is_anomaly': is_anomaly,
+            'all_bookmakers': sorted(bookmaker_odds_list, key=lambda x: x['odds'], reverse=True)
+        }
     
     def calculate_ai_probability(self, home_team, away_team, bet_type, market, model='complex'):
         """
@@ -749,12 +785,12 @@ def fetch_premier_league_odds():
         params = {
             'apiKey': ODDS_API_KEY,
             'regions': 'uk,us',  # UK and US bookmakers
-            'markets': 'h2h,spreads,totals',  # Head-to-head, spreads, and totals markets
+            'markets': 'h2h,spreads,totals,player_shots_on_target,player_shots,player_tackles,player_passes,player_assists,btts',  # All available markets
             'oddsFormat': 'decimal',
             'dateFormat': 'iso'
         }
         
-        response = requests.get(url, params=params, timeout=10)
+        response = requests.get(url, params=params, timeout=15)
         response.raise_for_status()
         
         data = response.json()
@@ -835,8 +871,37 @@ def format_odds_data(odds_data):
     
     return formatted_matches
 
+# Authentication decorator
+def require_auth(f):
+    """Decorator to require authentication"""
+    def decorated_function(*args, **kwargs):
+        if not session.get('authenticated'):
+            return redirect(url_for('login'))
+        return f(*args, **kwargs)
+    decorated_function.__name__ = f.__name__
+    return decorated_function
+
 # Routes
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Login page"""
+    if request.method == 'POST':
+        password = request.form.get('password')
+        if password == APP_PASSWORD:
+            session['authenticated'] = True
+            return redirect(url_for('index'))
+        else:
+            return render_template('login.html', error='Incorrect password')
+    return render_template('login.html')
+
+@app.route('/logout')
+def logout():
+    """Logout"""
+    session.clear()
+    return redirect(url_for('login'))
+
 @app.route('/')
+@require_auth
 def index():
     """Main page"""
     return render_template('index.html')
@@ -1245,12 +1310,13 @@ def live_odds():
         return jsonify({'error': 'Internal server error'}), 500
 
 @app.route('/api/value-bets')
+@require_auth
 def value_bets():
     """Get value bets with EV calculations"""
     try:
         # Get filters from query params
         region_filter = request.args.get('region', 'both')  # 'uk', 'us', or 'both'
-        ai_model = request.args.get('model', 'complex')  # 'simple', 'opponent', or 'complex'
+        ai_model = request.args.get('model', 'complex')  # 'simple', 'opponent', 'complex', or 'anomaly'
         
         # Fetch live odds
         odds_data = fetch_premier_league_odds()
@@ -1319,23 +1385,59 @@ def value_bets():
                                 if 'draw' not in h2h_odds or price > h2h_odds['draw']['odds']:
                                     h2h_odds['draw'] = {'odds': price, 'bookmaker': bookmaker.get('title'), 'region': bm_region}
             
-            # Fetch team stats once per match
-            home_stats = analyzer.get_team_historical_stats(home_team, seasons=1)
-            away_stats = analyzer.get_team_historical_stats(away_team, seasons=1)
+            # Fetch team stats once per match (skip for anomaly model)
+            home_stats = None
+            away_stats = None
+            if ai_model != 'anomaly':
+                home_stats = analyzer.get_team_historical_stats(home_team, seasons=1)
+                away_stats = analyzer.get_team_historical_stats(away_team, seasons=1)
+            
+            # For anomaly model, collect all bookmaker odds for each market
+            if ai_model == 'anomaly':
+                # Collect all bookmaker odds for moneyline markets
+                moneyline_all_odds = {'home_win': [], 'draw': [], 'away_win': []}
+                for bookmaker in filtered_bookmakers:
+                    for market in bookmaker.get('markets', []):
+                        if market.get('key') == 'h2h':
+                            for outcome in market.get('outcomes', []):
+                                team = outcome.get('name')
+                                price = outcome.get('price')
+                                bm_data = {'bookmaker': bookmaker.get('title'), 'odds': price}
+                                
+                                if team == home_team:
+                                    moneyline_all_odds['home_win'].append(bm_data)
+                                elif team == away_team:
+                                    moneyline_all_odds['away_win'].append(bm_data)
+                                elif team == 'Draw':
+                                    moneyline_all_odds['draw'].append(bm_data)
             
             # Create value bets for moneyline
             for market in moneyline_markets:
                 if market in h2h_odds:
-                    try:
-                        ai_prob = analyzer.calculate_ai_probability(home_team, away_team, 'moneyline', market, ai_model)
-                    except Exception as e:
-                        print(f"Error calculating moneyline probability for {home_team} vs {away_team}: {e}")
-                        ai_prob = None
+                    # Anomaly model uses different logic
+                    if ai_model == 'anomaly':
+                        anomaly_data = analyzer.detect_bookmaker_anomalies(moneyline_all_odds[market])
+                        if anomaly_data and anomaly_data['is_anomaly']:
+                            # Use average odds as "implied probability"
+                            ai_prob = analyzer.calculate_implied_probability(anomaly_data['average_odds'])
+                            best_odds = anomaly_data['best_odds']
+                            implied_prob = analyzer.calculate_implied_probability(best_odds)
+                            ev = analyzer.calculate_ev(ai_prob, best_odds)
+                        else:
+                            ai_prob = None
+                    else:
+                        try:
+                            ai_prob = analyzer.calculate_ai_probability(home_team, away_team, 'moneyline', market, ai_model)
+                        except Exception as e:
+                            print(f"Error calculating moneyline probability for {home_team} vs {away_team}: {e}")
+                            ai_prob = None
                     
                     if ai_prob:
-                        best_odds = h2h_odds[market]['odds']
-                        implied_prob = analyzer.calculate_implied_probability(best_odds)
-                        ev = analyzer.calculate_ev(ai_prob, best_odds)
+                        # For anomaly model, we already calculated these
+                        if ai_model != 'anomaly':
+                            best_odds = h2h_odds[market]['odds']
+                            implied_prob = analyzer.calculate_implied_probability(best_odds)
+                            ev = analyzer.calculate_ev(ai_prob, best_odds)
                         
                         # Calculate historical probability
                         hist_prob = 0
@@ -1360,7 +1462,11 @@ def value_bets():
                         
                         # Generate explanation using already-fetched stats
                         explanation = ""
-                        if ai_model == 'simple' and home_stats and away_stats:
+                        if ai_model == 'anomaly':
+                            anomaly_info = analyzer.detect_bookmaker_anomalies(moneyline_all_odds[market])
+                            if anomaly_info:
+                                explanation = f"Anomaly detected! {anomaly_info['best_bookmaker']} offers {anomaly_info['best_odds']} vs market avg {anomaly_info['average_odds']} ({anomaly_info['percentage_better']}% better)"
+                        elif ai_model == 'simple' and home_stats and away_stats:
                             if market == 'home_win':
                                 explanation = f"{home_team} won {home_stats['home']['wins']} of {home_stats['home']['total']} home games this season ({round(home_stats['home']['wins']/max(home_stats['home']['total'],1)*100, 1)}%)"
                             elif market == 'away_win':
@@ -1464,6 +1570,62 @@ def value_bets():
                         'region': odds_data['region'],
                         'explanation': explanation
                     })
+        
+            # Add Player Props if available
+            for bookmaker in filtered_bookmakers:
+                for market in bookmaker.get('markets', []):
+                    market_key = market.get('key', '')
+                    
+                    # Check if it's a player prop market
+                    player_prop_markets = ['player_shots', 'player_shots_on_target', 'player_tackles', 'player_passes', 'player_assists']
+                    
+                    if market_key in player_prop_markets:
+                        for outcome in market.get('outcomes', []):
+                            player_name = outcome.get('description', '')
+                            over_under = outcome.get('name', '').lower()
+                            point = outcome.get('point', 0)
+                            price = outcome.get('price', 0)
+                            
+                            if price > 0:
+                                # For player props, use average odds as baseline (simplified)
+                                # Since we don't have historical player data
+                                avg_implied_prob = 0.5  # Neutral probability
+                                ai_prob = avg_implied_prob
+                                
+                                implied_prob = analyzer.calculate_implied_probability(price)
+                                ev = analyzer.calculate_ev(ai_prob, price)
+                                
+                                # Only include if data is complete
+                                if player_name and point:
+                                    market_display_name = {
+                                        'player_shots': 'Shots',
+                                        'player_shots_on_target': 'Shots on Target',
+                                        'player_tackles': 'Tackles',
+                                        'player_passes': 'Passes',
+                                        'player_assists': 'Assists'
+                                    }.get(market_key, market_key)
+                                    
+                                    bet_description = f"{player_name} {over_under.capitalize()} {point} {market_display_name}"
+                                    
+                                    bm_key = bookmaker.get('key', '')
+                                    bm_region = 'UK' if bm_key in ['williamhill', 'skybet', 'paddypower', 'betfair', 'coral', 'ladbrokes', 'unibet'] else 'US'
+                                    
+                                    value_bets_list.append({
+                                        'match': f"{home_team} vs {away_team}",
+                                        'home_team': home_team,
+                                        'away_team': away_team,
+                                        'commence_time': commence_time,
+                                        'bet_type': 'Player Props',
+                                        'market': bet_description,
+                                        'ai_probability': round(ai_prob * 100, 2),
+                                        'implied_probability': round(implied_prob * 100, 2),
+                                        'historical_probability': round(ai_prob * 100, 2),
+                                        'ev': round(ev, 2),
+                                        'best_odds': round(price, 2),
+                                        'bookmaker': bookmaker.get('title'),
+                                        'region': bm_region,
+                                        'explanation': f"Player prop for {player_name} - {market_display_name} line at {point}"
+                                    })
         
         # Sort by EV (highest first)
         value_bets_list.sort(key=lambda x: x['ev'], reverse=True)

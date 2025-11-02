@@ -136,6 +136,21 @@ body {
     margin: 0;
 }
 
+.logout-btn {
+    padding: 0.5rem 1rem;
+    background-color: var(--gray-700);
+    color: white;
+    text-decoration: none;
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+    transition: all var(--transition-base);
+}
+
+.logout-btn:hover {
+    background-color: var(--gray-900);
+}
+
 /* Legacy logo class for compatibility */
 .logo {
     font-size: 1.5rem;
@@ -1041,11 +1056,31 @@ body {
     align-items: center;
     box-shadow: var(--shadow-sm);
     transition: all var(--transition-base);
+    position: relative;
 }
 
 .value-bet-card:hover {
     box-shadow: var(--shadow-md);
     transform: translateY(-2px);
+}
+
+.value-bet-card.anomaly-bet {
+    border: 2px solid #ff6b6b;
+    background: linear-gradient(to right, #fff5f5, #ffffff);
+}
+
+.anomaly-badge {
+    position: absolute;
+    top: -10px;
+    right: 20px;
+    background: linear-gradient(135deg, #ff6b6b, #ff8787);
+    color: white;
+    padding: 0.25rem 0.75rem;
+    border-radius: 1rem;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    box-shadow: 0 4px 12px rgba(255, 107, 107, 0.4);
 }
 
 .bet-match-info h3 {
