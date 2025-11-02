@@ -17,6 +17,24 @@ app.secret_key = secrets.token_hex(32)  # Generate secure secret key for session
 # Database setup
 DATABASE = 'premier_league.db'
 
+# Initialize database on app startup
+def init_db():
+    """Initialize database with schema"""
+    if not os.path.exists(DATABASE):
+        db = get_db()
+        try:
+            with app.open_resource('schema.sql', mode='r') as f:
+                db.cursor().executescript(f.read())
+            db.commit()
+            print("Database initialized!")
+        except Exception as e:
+            print(f"Database initialization warning: {e}")
+        finally:
+            db.close()
+
+# Initialize database when module loads (for gunicorn/production)
+init_db()
+
 # The Odds API Configuration
 ODDS_API_KEY = os.environ.get('ODDS_API_KEY', '9bc157f3e9720cc01a71655708f5c3ca')
 ODDS_API_BASE_URL = 'https://api.the-odds-api.com/v4'
@@ -34,15 +52,6 @@ def get_db():
     db = sqlite3.connect(DATABASE)
     db.row_factory = sqlite3.Row
     return db
-
-def init_db():
-    """Initialize database with schema"""
-    if not os.path.exists(DATABASE):
-        db = get_db()
-        with app.open_resource('schema.sql', mode='r') as f:
-            db.cursor().executescript(f.read())
-        db.commit()
-        print("Database initialized!")
 
 class AdvancedBettingAnalyzer:
     """Advanced statistical analysis engine with EV calculations"""
@@ -1815,6 +1824,6 @@ def data_summary():
     })
 
 if __name__ == '__main__':
-    init_db()
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    port = int(os.environ.get('PORT', 5000))
+    app.run(debug=False, host='0.0.0.0', port=port)
 

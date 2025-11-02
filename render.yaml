@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: premier-league-betting
+    env: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: ODDS_API_KEY
+        sync: false
+        value: 9bc157f3e9720cc01a71655708f5c3ca
+      - key: PYTHON_VERSION
+        value: 3.11.0
