@@ -10,7 +10,7 @@ const TEAMS = [
 
 // State management
 const state = {
-    currentTab: 'value',
+    currentTab: 'odds',
     selectedTeam: null,
     selectedSeasons: 10,
     currentPeriod: {
@@ -35,6 +35,7 @@ const state = {
     currentRegion: 'both',
     currentAIModel: 'complex',
     currentDateFilter: 'all',
+    currentLeague: 'soccer_epl',
     oddsMarketFilter: 'all',
     oddsRegionFilter: 'both',
     selectedMatchId: 'all',
@@ -51,15 +52,10 @@ document.addEventListener('DOMContentLoaded', () => {
     setupSeasonFilter();
     setupEventListeners();
     
-    // Load team summaries when tab is clicked
-    document.querySelector('[data-tab="summary"]').addEventListener('click', () => {
-        if (!state.summariesLoaded) {
-            loadTeamSummaries();
-            state.summariesLoaded = true;
-        }
-    });
+    // Setup value bets filters FIRST
+    setupValueBetsFilters();
     
-    // Load live odds when tab is clicked
+    // Load live odds when tab is clicked OR on page load (since it's default)
     document.querySelector('[data-tab="odds"]').addEventListener('click', () => {
         if (!state.oddsLoaded) {
             loadLiveOdds();
@@ -67,19 +63,51 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     });
     
-    // Load value bets immediately on page load
-    loadValueBets();
-    
-    // Setup value bets filters
-    setupValueBetsFilters();
-    
-    // Load PL Table when tab is clicked
-    document.querySelector('[data-tab="table"]').addEventListener('click', () => {
-        if (!state.tableLoaded) {
-            loadPremierLeagueTable();
-            state.tableLoaded = true;
+    // Load value bets when value tab is clicked (not on page load anymore)
+    document.querySelector('[data-tab="value"]').addEventListener('click', () => {
+        if (!state.valueBetsLoaded) {
+            loadValueBets();
         }
     });
+    
+    // Load live odds immediately since it's the default tab (AFTER filters are set up)
+    console.log('Initializing live odds load...');
+    setTimeout(() => {
+        loadLiveOdds();
+    }, 100);
+    
+    // Load PL Table when Statistics tab or sub-tab is clicked
+    const statisticsTab = document.querySelector('[data-tab="statistics"]');
+    const tableSubTab = document.querySelector('[data-subtab="table"]');
+    const summarySubTab = document.querySelector('[data-subtab="summary"]');
+    
+    if (statisticsTab) {
+        statisticsTab.addEventListener('click', () => {
+            if (!state.tableLoaded) {
+                loadPremierLeagueTable();
+                state.tableLoaded = true;
+            }
+        });
+    }
+    
+    if (tableSubTab) {
+        tableSubTab.addEventListener('click', () => {
+            if (!state.tableLoaded) {
+                loadPremierLeagueTable();
+                state.tableLoaded = true;
+            }
+        });
+    }
+    
+    // Load team summaries when summary sub-tab is clicked
+    if (summarySubTab) {
+        summarySubTab.addEventListener('click', () => {
+        if (!state.summariesLoaded) {
+            loadTeamSummaries();
+            state.summariesLoaded = true;
+        }
+    });
+    }
     
     // Setup summary period filter
     const summaryPeriodFilter = document.getElementById('summary-period-filter');
@@ -111,6 +139,26 @@ function initializeTabs() {
             document.getElementById(`${tabName}-tab`).classList.add('active');
             
             state.currentTab = tabName;
+        });
+    });
+    
+    // Sub-tab switching (for Statistics tab)
+    const subTabButtons = document.querySelectorAll('.sub-tab-btn');
+    const subTabContents = document.querySelectorAll('.sub-tab-content');
+    
+    subTabButtons.forEach(btn => {
+        btn.addEventListener('click', () => {
+            const subTabName = btn.dataset.subtab;
+            
+            // Update buttons
+            subTabButtons.forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            
+            // Update content
+            subTabContents.forEach(content => {
+                content.classList.remove('active');
+            });
+            document.getElementById(`${subTabName}-subtab`).classList.add('active');
         });
     });
 }
@@ -602,8 +650,10 @@ async function loadLiveOdds() {
     loadingEl.style.display = 'flex';
     
     try {
-        const response = await fetch('/api/live-odds');
+        const response = await fetch(`/api/live-odds?league=${state.currentLeague}`);
         const data = await response.json();
+        
+        console.log('Live odds data received:', data);
         
         if (data.error) {
             loadingEl.style.display = 'none';
@@ -613,6 +663,11 @@ async function loadLiveOdds() {
         
         loadingEl.style.display = 'none';
         state.allOddsData = data.matches || [];
+        
+        // Sort matches by commence_time (soonest first)
+        state.allOddsData.sort((a, b) => new Date(a.commence_time) - new Date(b.commence_time));
+        
+        console.log('Matches loaded and sorted:', state.allOddsData.length);
         
         // Populate match selector
         populateMatchSelector(state.allOddsData);
@@ -625,8 +680,9 @@ async function loadLiveOdds() {
         
     } catch (error) {
         console.error('Error loading live odds:', error);
+        console.error('Error stack:', error.stack);
         loadingEl.style.display = 'none';
-        contentEl.innerHTML = '<div class="error-message"><p>Unable to load live odds. Please try again later.</p></div>';
+        contentEl.innerHTML = '<div class="error-message"><p>Unable to load live odds. Error: ' + error.message + '</p></div>';
     }
 }
 
@@ -655,9 +711,84 @@ function populateMatchSelector(matches) {
     });
 }
 
+// Calculate arbitrage opportunity for any number of outcomes
+function calculateArbitrage(...odds) {
+    // Filter out null/undefined/zero values
+    const validOdds = odds.filter(o => o && o > 0);
+    
+    if (validOdds.length < 2) return null;
+    
+    const totalImplied = validOdds.reduce((sum, odd) => sum + (1 / odd), 0);
+    
+    // If total < 1, there's an arbitrage opportunity
+    const isArbitrage = totalImplied < 1;
+    const percentage = ((1 - totalImplied) * 100);  // Positive = profit, Negative = loss
+    
+    return {
+        isArbitrage,
+        percentage: percentage.toFixed(2),
+        totalImplied: (totalImplied * 100).toFixed(2)
+    };
+}
+
+// Get best odds for over/under markets
+function getBestOverUnderOdds(bookmakers) {
+    const lines = new Map();
+    
+    bookmakers.forEach(bm => {
+        if (bm.totals) {
+            Object.keys(bm.totals).forEach(outcome => {
+                const { point, price } = bm.totals[outcome];
+                const key = `${outcome}_${point}`;
+                
+                if (!lines.has(key) || price > lines.get(key).odds) {
+                    lines.set(key, { 
+                        outcome, 
+                        point, 
+                        odds: price, 
+                        bookmaker: bm.name 
+                    });
+                }
+            });
+        }
+    });
+    
+    return Array.from(lines.values());
+}
+
+// Get best odds across all bookmakers
+function getBestOdds(bookmakers, homeTeam, awayTeam) {
+    let bestHome = { odds: 0, bookmaker: '' };
+    let bestDraw = { odds: 0, bookmaker: '' };
+    let bestAway = { odds: 0, bookmaker: '' };
+    
+    bookmakers.forEach(bm => {
+        if (bm.h2h) {
+            if (bm.h2h[homeTeam] && bm.h2h[homeTeam] > bestHome.odds) {
+                bestHome = { odds: bm.h2h[homeTeam], bookmaker: bm.name };
+            }
+            if (bm.h2h['Draw'] && bm.h2h['Draw'] > bestDraw.odds) {
+                bestDraw = { odds: bm.h2h['Draw'], bookmaker: bm.name };
+            }
+            if (bm.h2h[awayTeam] && bm.h2h[awayTeam] > bestAway.odds) {
+                bestAway = { odds: bm.h2h[awayTeam], bookmaker: bm.name };
+            }
+        }
+    });
+    
+    return { bestHome, bestDraw, bestAway };
+}
+
 // Render live odds
 function renderLiveOdds(matches) {
+    console.log('Rendering live odds, matches:', matches ? matches.length : 0);
+    
     const contentEl = document.getElementById('odds-content');
+    
+    if (!contentEl) {
+        console.error('odds-content element not found!');
+        return;
+    }
     
     if (!matches || matches.length === 0) {
         contentEl.innerHTML = '<div class="card"><p class="text-center">No upcoming Premier League matches available at this time.</p></div>';
@@ -671,9 +802,12 @@ function renderLiveOdds(matches) {
         filteredMatches = [matches[matchIndex]];
     }
     
+    console.log('Filtered matches:', filteredMatches.length);
+    
     let html = '';
     
-    filteredMatches.forEach(match => {
+    try {
+        filteredMatches.forEach(match => {
         const matchTime = new Date(match.commence_time);
         const matchTimeStr = matchTime.toLocaleString('en-GB', { 
             weekday: 'short', 
@@ -693,6 +827,54 @@ function renderLiveOdds(matches) {
             uk_bookmakers = [];
         }
         
+        // Combine all bookmakers for calculations
+        const allBookmakers = [...uk_bookmakers, ...us_bookmakers];
+        const bestOdds = getBestOdds(allBookmakers, match.home_team, match.away_team);
+        
+        // Calculate moneyline arbitrage
+        const moneylineArb = calculateArbitrage(
+            bestOdds.bestHome.odds,
+            bestOdds.bestDraw.odds,
+            bestOdds.bestAway.odds
+        );
+        
+        // Get best over/under odds for common lines
+        let overUnderArb = null;
+        const bestOverUnder = { over: null, under: null, line: null };
+        
+        // Find most common totals line (usually 2.5)
+        const totalsMap = new Map();
+        allBookmakers.forEach(bm => {
+            if (bm.totals) {
+                Object.keys(bm.totals).forEach(outcome => {
+                    const { point, price } = bm.totals[outcome];
+                    const key = point;
+                    if (!totalsMap.has(key)) totalsMap.set(key, { over: null, under: null });
+                    
+                    if (outcome.toLowerCase() === 'over') {
+                        if (!totalsMap.get(key).over || price > totalsMap.get(key).over.odds) {
+                            totalsMap.get(key).over = { odds: price, bookmaker: bm.name };
+                        }
+                    } else if (outcome.toLowerCase() === 'under') {
+                        if (!totalsMap.get(key).under || price > totalsMap.get(key).under.odds) {
+                            totalsMap.get(key).under = { odds: price, bookmaker: bm.name };
+                        }
+                    }
+                });
+            }
+        });
+        
+        // Find the most complete line (both over and under available)
+        for (const [line, data] of totalsMap.entries()) {
+            if (data.over && data.under) {
+                bestOverUnder.over = data.over;
+                bestOverUnder.under = data.under;
+                bestOverUnder.line = line;
+                overUnderArb = calculateArbitrage(data.over.odds, data.under.odds);
+                break; // Use first complete line found
+            }
+        }
+        
         html += `
             <div class="odds-card">
                 <div class="odds-header">
@@ -701,6 +883,57 @@ function renderLiveOdds(matches) {
                         <p class="match-time">${matchTimeStr}</p>
                     </div>
                 </div>
+                
+                ${bestOdds.bestHome.odds > 0 ? `
+                <div class="best-odds-summary">
+                    <h4 style="font-size: 0.8125rem; font-weight: 600; color: var(--gray-700); margin-bottom: 0.5rem;">Moneyline - Best Odds:</h4>
+                    <div class="best-odds-grid">
+                        <div class="best-odds-item">
+                            <div class="outcome-label">${match.home_team}</div>
+                            <div class="outcome-odds">${bestOdds.bestHome.odds.toFixed(2)}</div>
+                            <div class="outcome-bookmaker">${bestOdds.bestHome.bookmaker}</div>
+                        </div>
+                        <div class="best-odds-item">
+                            <div class="outcome-label">Draw</div>
+                            <div class="outcome-odds">${bestOdds.bestDraw.odds.toFixed(2)}</div>
+                            <div class="outcome-bookmaker">${bestOdds.bestDraw.bookmaker}</div>
+                        </div>
+                        <div class="best-odds-item">
+                            <div class="outcome-label">${match.away_team}</div>
+                            <div class="outcome-odds">${bestOdds.bestAway.odds.toFixed(2)}</div>
+                            <div class="outcome-bookmaker">${bestOdds.bestAway.bookmaker}</div>
+                        </div>
+                    </div>
+                    ${moneylineArb ? `
+                    <div class="arbitrage-alert-compact ${moneylineArb.isArbitrage ? 'arb-profit' : 'arb-loss'}">
+                        ${moneylineArb.isArbitrage ? '🎯 Arbitrage: +' : '⚠️ '}${moneylineArb.percentage}%
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
+                
+                ${bestOverUnder.over && bestOverUnder.under ? `
+                <div class="best-odds-summary">
+                    <h4 style="font-size: 0.8125rem; font-weight: 600; color: var(--gray-700); margin-bottom: 0.5rem;">Goals O/U ${bestOverUnder.line} - Best Odds:</h4>
+                    <div class="best-odds-grid" style="grid-template-columns: repeat(2, 1fr);">
+                        <div class="best-odds-item">
+                            <div class="outcome-label">Over ${bestOverUnder.line}</div>
+                            <div class="outcome-odds">${bestOverUnder.over.odds.toFixed(2)}</div>
+                            <div class="outcome-bookmaker">${bestOverUnder.over.bookmaker}</div>
+                        </div>
+                        <div class="best-odds-item">
+                            <div class="outcome-label">Under ${bestOverUnder.line}</div>
+                            <div class="outcome-odds">${bestOverUnder.under.odds.toFixed(2)}</div>
+                            <div class="outcome-bookmaker">${bestOverUnder.under.bookmaker}</div>
+                        </div>
+                    </div>
+                    ${overUnderArb ? `
+                    <div class="arbitrage-alert-compact ${overUnderArb.isArbitrage ? 'arb-profit' : 'arb-loss'}">
+                        ${overUnderArb.isArbitrage ? '🎯 Arbitrage: +' : '⚠️ '}${overUnderArb.percentage}%
+                    </div>
+                    ` : ''}
+                </div>
+                ` : ''}
                 
                 ${uk_bookmakers.length > 0 ? `
                 <div class="bookmaker-section">
@@ -721,9 +954,16 @@ function renderLiveOdds(matches) {
                 ` : ''}
             </div>
         `;
-    });
-    
-    contentEl.innerHTML = html;
+        });
+        
+        console.log('HTML generated, length:', html.length);
+        contentEl.innerHTML = html;
+        console.log('Live odds rendered successfully');
+        
+    } catch (error) {
+        console.error('Error in renderLiveOdds:', error);
+        contentEl.innerHTML = '<div class="error-message"><p>Error rendering odds: ' + error.message + '</p></div>';
+    }
 }
 
 // Render bookmaker odds table
@@ -744,9 +984,14 @@ function renderBookmakerOdds(homeTeam, awayTeam, bookmakers) {
         html += renderGoalsTable(bookmakers);
     }
     
-    // Render Corners if selected
-    if (state.oddsMarketFilter === 'all' || state.oddsMarketFilter === 'corners') {
-        html += renderCornersTable(bookmakers);
+    // Render Spreads (Handicaps) if selected
+    if (state.oddsMarketFilter === 'all' || state.oddsMarketFilter === 'spreads') {
+        html += renderSpreadsTable(bookmakers);
+    }
+    
+    // Render Exchange Lay if selected
+    if (state.oddsMarketFilter === 'all' || state.oddsMarketFilter === 'h2h_lay') {
+        html += renderLayBettingTable(homeTeam, awayTeam, bookmakers);
     }
     
     return html;
@@ -885,47 +1130,38 @@ function renderGoalsTable(bookmakers) {
     return html;
 }
 
-// Render corners table
-function renderCornersTable(bookmakers) {
-    // Note: The Odds API doesn't typically provide corners markets
-    // This is a placeholder that will show if data becomes available
+// Render spreads/handicaps table
+function renderSpreadsTable(bookmakers) {
+    // Collect spreads data
+    const spreadsData = new Map();
     
-    // Check if any bookmaker has corners data
-    const hasCornersData = bookmakers.some(bm => bm.corners && Object.keys(bm.corners).length > 0);
+    bookmakers.forEach(bm => {
+        if (bm.spreads) {
+            Object.keys(bm.spreads).forEach(team => {
+                const { point, price } = bm.spreads[team];
+                const lineKey = `${team}_${point}`;
+                if (!spreadsData.has(lineKey)) {
+                    spreadsData.set(lineKey, { team, point, bookmakers: {} });
+                }
+                spreadsData.get(lineKey).bookmakers[bm.name] = price;
+            });
+        }
+    });
     
-    if (!hasCornersData) {
+    if (spreadsData.size === 0) {
         return `
             <div style="margin-bottom: 1.5rem;">
-                <h5 style="color: var(--gray-700); font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Corners (Over/Under)</h5>
-                <div style="padding: 1.5rem; background-color: var(--gray-50); border-radius: var(--radius-md); text-align: center; color: var(--gray-600);">
-                    <p>Corners markets not available from current bookmakers</p>
-                    <p style="font-size: 0.875rem; margin-top: 0.5rem;">This market may not be offered by all bookmakers in the API</p>
+                <h5 style="color: var(--gray-700); font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Spreads / Handicaps</h5>
+                <div style="padding: 1rem; background-color: var(--gray-50); border-radius: var(--radius-md); text-align: center; color: var(--gray-600); font-size: 0.875rem;">
+                    No spreads available
                 </div>
             </div>
         `;
     }
     
-    // If corners data exists, render it similar to goals
-    const cornersLines = new Map();
-    
-    bookmakers.forEach(bm => {
-        if (bm.corners) {
-            Object.keys(bm.corners).forEach(key => {
-                const { point, price } = bm.corners[key];
-                const lineKey = `${key}_${point}`;
-                if (!cornersLines.has(lineKey)) {
-                    cornersLines.set(lineKey, { name: key, point, bookmakers: {} });
-                }
-                if (!cornersLines.get(lineKey).bookmakers[bm.name] || price > cornersLines.get(lineKey).bookmakers[bm.name]) {
-                    cornersLines.get(lineKey).bookmakers[bm.name] = price;
-                }
-            });
-        }
-    });
-    
     let html = `
         <div style="margin-bottom: 1.5rem;">
-            <h5 style="color: var(--gray-700); font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Corners (Over/Under)</h5>
+            <h5 style="color: var(--gray-700); font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Spreads / Handicaps</h5>
             <div class="odds-table-container">
                 <table class="odds-table">
                     <thead>
@@ -933,36 +1169,79 @@ function renderCornersTable(bookmakers) {
                             <th>Bookmaker</th>
     `;
     
-    const uniqueLines = Array.from(cornersLines.values());
+    const uniqueLines = Array.from(spreadsData.values());
     uniqueLines.forEach(line => {
-        html += `<th>${line.name.charAt(0).toUpperCase() + line.name.slice(1)} ${line.point}</th>`;
+        const sign = line.point >= 0 ? '+' : '';
+        html += `<th>${line.team} ${sign}${line.point}</th>`;
     });
     
-    html += `
+    html += `</tr></thead><tbody>`;
+    
+    bookmakers.forEach(bm => {
+        html += `<tr><td class="bookmaker-name">${bm.name}</td>`;
+        uniqueLines.forEach(line => {
+            const lineKey = `${line.team}_${line.point}`;
+            const odds = line.bookmakers[bm.name];
+            html += `<td>${odds ? odds.toFixed(2) : '-'}</td>`;
+        });
+        html += `</tr>`;
+    });
+    
+    html += `</tbody></table></div></div>`;
+    return html;
+}
+
+// Render lay betting table (exchange markets)
+function renderLayBettingTable(homeTeam, awayTeam, bookmakers) {
+    // Check for lay markets
+    const hasLayData = bookmakers.some(bm => bm.h2h_lay && Object.keys(bm.h2h_lay).length > 0);
+    
+    if (!hasLayData) {
+        return `
+            <div style="margin-bottom: 1.5rem;">
+                <h5 style="color: var(--gray-700); font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Exchange Lay Betting</h5>
+                <div style="padding: 1rem; background-color: var(--gray-50); border-radius: var(--radius-md); text-align: center; color: var(--gray-600); font-size: 0.875rem;">
+                    <p>Lay betting markets not available</p>
+                    <p style="margin-top: 0.25rem; font-size: 0.8125rem;">Available only on betting exchanges (Betfair, Matchbook, etc.)</p>
+                </div>
+            </div>
+        `;
+    }
+    
+    let html = `
+        <div style="margin-bottom: 1.5rem;">
+            <h5 style="color: var(--gray-700); font-size: 0.9375rem; font-weight: 600; margin-bottom: 0.75rem;">Exchange Lay Betting</h5>
+            <div class="odds-table-container">
+                <table class="odds-table">
+                    <thead>
+                        <tr>
+                            <th>Exchange</th>
+                            <th>Lay ${homeTeam}</th>
+                            <th>Lay Draw</th>
+                            <th>Lay ${awayTeam}</th>
                         </tr>
                     </thead>
                     <tbody>
     `;
     
     bookmakers.forEach(bm => {
-        html += `<tr><td class="bookmaker-name">${bm.name}</td>`;
-        
-        uniqueLines.forEach(line => {
-            const lineKey = `${line.name}_${line.point}`;
-            const odds = line.bookmakers[bm.name];
-            html += `<td>${odds ? odds.toFixed(2) : '-'}</td>`;
-        });
-        
-        html += `</tr>`;
+        if (bm.h2h_lay) {
+            const layHome = bm.h2h_lay[homeTeam] || '-';
+            const layDraw = bm.h2h_lay['Draw'] || '-';
+            const layAway = bm.h2h_lay[awayTeam] || '-';
+            
+            html += `
+                <tr>
+                    <td class="bookmaker-name">${bm.name}</td>
+                    <td>${layHome !== '-' ? layHome.toFixed(2) : '-'}</td>
+                    <td>${layDraw !== '-' ? layDraw.toFixed(2) : '-'}</td>
+                    <td>${layAway !== '-' ? layAway.toFixed(2) : '-'}</td>
+                </tr>
+            `;
+        }
     });
     
-    html += `
-                    </tbody>
-                </table>
-            </div>
-        </div>
-    `;
-    
+    html += `</tbody></table></div></div>`;
     return html;
 }
 
@@ -975,7 +1254,7 @@ async function loadValueBets() {
     loadingEl.style.display = 'flex';
     
     try {
-        const response = await fetch(`/api/value-bets?region=${state.currentRegion}&model=${state.currentAIModel}`);
+        const response = await fetch(`/api/value-bets?region=${state.currentRegion}&model=${state.currentAIModel}&league=${state.currentLeague}`);
         const data = await response.json();
         
         if (data.error) {
@@ -1112,6 +1391,25 @@ function setupValueBetsFilters() {
         matchSelector.addEventListener('change', (e) => {
             state.selectedMatchId = e.target.value;
             renderLiveOdds(state.allOddsData);
+        });
+    }
+    
+    // Setup league selector (Live Odds)
+    const leagueSelector = document.getElementById('league-selector');
+    if (leagueSelector) {
+        leagueSelector.addEventListener('change', (e) => {
+            state.currentLeague = e.target.value;
+            state.selectedMatchId = 'all'; // Reset match selection
+            loadLiveOdds(); // Reload with new league
+        });
+    }
+    
+    // Setup league selector (Value Bets)
+    const valueLeagueSelector = document.getElementById('value-league-selector');
+    if (valueLeagueSelector) {
+        valueLeagueSelector.addEventListener('change', (e) => {
+            state.currentLeague = e.target.value;
+            loadValueBets(); // Reload with new league
         });
     }
 }

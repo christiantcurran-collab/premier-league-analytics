@@ -21,6 +21,11 @@ DATABASE = 'premier_league.db'
 ODDS_API_KEY = os.environ.get('ODDS_API_KEY', '9bc157f3e9720cc01a71655708f5c3ca')
 ODDS_API_BASE_URL = 'https://api.the-odds-api.com/v4'
 
+# Betfair API Configuration
+BETFAIR_APP_KEY = os.environ.get('BETFAIR_APP_KEY', 'A4YclwMGYKSZlK0y')
+BETFAIR_USERNAME = os.environ.get('BETFAIR_USERNAME', 'ccurran@gmail.com')
+BETFAIR_API_ENDPOINT = 'https://api.betfair.com/exchange/betting/json-rpc/v1'
+
 # Authentication
 APP_PASSWORD = 'Eva2020'
 
@@ -777,15 +782,34 @@ class BettingAnalyzer:
         return probabilities
 
 # Odds API Functions
-def fetch_premier_league_odds():
-    """Fetch Premier League odds from The Odds API"""
+def fetch_betfair_markets():
+    """
+    Fetch Betfair Exchange markets for Premier League
+    Note: Betfair requires session-based authentication which is complex
+    For now, this is a placeholder - full implementation would need:
+    1. Login endpoint to get session token
+    2. Certificate-based authentication
+    3. Complex API calls for market data
+    
+    Consider using Betfair's simpler API or The Odds API's Betfair integration
+    """
+    # Placeholder - Betfair integration requires more complex auth
+    # Would need to implement:
+    # - Session token management
+    # - Market catalogue navigation
+    # - Event ID mapping
+    return None
+
+def fetch_league_odds(sport='soccer_epl'):
+    """Fetch odds from The Odds API for any league (includes Betfair data)"""
     try:
-        # Fetch odds for soccer_epl (English Premier League)
-        url = f"{ODDS_API_BASE_URL}/sports/soccer_epl/odds"
+        # Fetch odds for specified league
+        # The Odds API aggregates from multiple sources including Betfair
+        url = f"{ODDS_API_BASE_URL}/sports/{sport}/odds"
         params = {
             'apiKey': ODDS_API_KEY,
-            'regions': 'uk,us',  # UK and US bookmakers
-            'markets': 'h2h,spreads,totals,player_shots_on_target,player_shots,player_tackles,player_passes,player_assists,btts',  # All available markets
+            'regions': 'uk,us,eu',  # UK, US, and European bookmakers (includes Betfair)
+            'markets': 'h2h,spreads,totals,h2h_lay',  # All match-specific markets
             'oddsFormat': 'decimal',
             'dateFormat': 'iso'
         }
@@ -797,8 +821,12 @@ def fetch_premier_league_odds():
         return data
         
     except requests.exceptions.RequestException as e:
-        print(f"Error fetching odds: {e}")
+        print(f"Error fetching odds for {sport}: {e}")
         return None
+
+def fetch_premier_league_odds():
+    """Fetch Premier League odds - wrapper for backwards compatibility"""
+    return fetch_league_odds('soccer_epl')
 
 def format_odds_data(odds_data):
     """Format odds data for frontend display"""
@@ -822,15 +850,19 @@ def format_odds_data(odds_data):
             bm_title = bookmaker.get('title', '')
             markets = bookmaker.get('markets', [])
             
-            # Extract h2h (match winner) odds
+            # Extract all market types
             h2h_market = next((m for m in markets if m.get('key') == 'h2h'), None)
             totals_market = next((m for m in markets if m.get('key') == 'totals'), None)
+            spreads_market = next((m for m in markets if m.get('key') == 'spreads'), None)
+            h2h_lay_market = next((m for m in markets if m.get('key') == 'h2h_lay'), None)
             
             bm_data = {
                 'name': bm_title,
                 'key': bm_name,
                 'h2h': {},
-                'totals': {}
+                'totals': {},
+                'spreads': {},
+                'h2h_lay': {}
             }
             
             if h2h_market:
@@ -848,6 +880,22 @@ def format_odds_data(odds_data):
                         'point': point,
                         'price': price
                     }
+            
+            if spreads_market:
+                for outcome in spreads_market.get('outcomes', []):
+                    team_name = outcome.get('name', '')
+                    point = outcome.get('point', 0)
+                    price = outcome.get('price', 0)
+                    bm_data['spreads'][team_name] = {
+                        'point': point,
+                        'price': price
+                    }
+            
+            if h2h_lay_market:
+                for outcome in h2h_lay_market.get('outcomes', []):
+                    team_name = outcome.get('name', '')
+                    price = outcome.get('price', 0)
+                    bm_data['h2h_lay'][team_name] = price
             
             # Categorize by region (rough classification based on common bookmakers)
             uk_bookmakers_list = ['williamhill', 'skybet', 'paddypower', 'betfair', 'coral', 'ladbrokes', 'unibet']
@@ -1291,9 +1339,11 @@ def team_cdf(team_name):
 
 @app.route('/api/live-odds')
 def live_odds():
-    """Get live odds for Premier League matches from The Odds API"""
+    """Get live odds from The Odds API"""
     try:
-        odds_data = fetch_premier_league_odds()
+        # Get league from query params
+        league = request.args.get('league', 'soccer_epl')
+        odds_data = fetch_league_odds(league)
         
         if odds_data is None:
             return jsonify({'error': 'Unable to fetch odds from API'}), 500
@@ -1317,9 +1367,10 @@ def value_bets():
         # Get filters from query params
         region_filter = request.args.get('region', 'both')  # 'uk', 'us', or 'both'
         ai_model = request.args.get('model', 'complex')  # 'simple', 'opponent', 'complex', or 'anomaly'
+        league = request.args.get('league', 'soccer_epl')  # Which league to analyze
         
-        # Fetch live odds
-        odds_data = fetch_premier_league_odds()
+        # Fetch live odds for selected league
+        odds_data = fetch_league_odds(league)
         
         if odds_data is None:
             return jsonify({'error': 'Unable to fetch odds from API'}), 500
@@ -1465,7 +1516,7 @@ def value_bets():
                         if ai_model == 'anomaly':
                             anomaly_info = analyzer.detect_bookmaker_anomalies(moneyline_all_odds[market])
                             if anomaly_info:
-                                explanation = f"Anomaly detected! {anomaly_info['best_bookmaker']} offers {anomaly_info['best_odds']} vs market avg {anomaly_info['average_odds']} ({anomaly_info['percentage_better']}% better)"
+                                explanation = f"📊 {anomaly_info['best_bookmaker']}: {anomaly_info['best_odds']} | Market avg: {anomaly_info['average_odds']} ({anomaly_info['percentage_better']}% better than average)"
                         elif ai_model == 'simple' and home_stats and away_stats:
                             if market == 'home_win':
                                 explanation = f"{home_team} won {home_stats['home']['wins']} of {home_stats['home']['total']} home games this season ({round(home_stats['home']['wins']/max(home_stats['home']['total'],1)*100, 1)}%)"
@@ -1571,61 +1622,58 @@ def value_bets():
                         'explanation': explanation
                     })
         
-            # Add Player Props if available
+            # Analyze Spreads (Handicaps)
+            spreads_odds = {}
             for bookmaker in filtered_bookmakers:
+                bm_key = bookmaker.get('key', '')
+                bm_region = 'UK' if bm_key in uk_bookmakers_list else 'US' if bm_key in us_bookmakers_list else 'Other'
+                
                 for market in bookmaker.get('markets', []):
-                    market_key = market.get('key', '')
-                    
-                    # Check if it's a player prop market
-                    player_prop_markets = ['player_shots', 'player_shots_on_target', 'player_tackles', 'player_passes', 'player_assists']
-                    
-                    if market_key in player_prop_markets:
+                    if market.get('key') == 'spreads':
                         for outcome in market.get('outcomes', []):
-                            player_name = outcome.get('description', '')
-                            over_under = outcome.get('name', '').lower()
+                            team = outcome.get('name', '')
                             point = outcome.get('point', 0)
                             price = outcome.get('price', 0)
                             
-                            if price > 0:
-                                # For player props, use average odds as baseline (simplified)
-                                # Since we don't have historical player data
-                                avg_implied_prob = 0.5  # Neutral probability
-                                ai_prob = avg_implied_prob
-                                
-                                implied_prob = analyzer.calculate_implied_probability(price)
-                                ev = analyzer.calculate_ev(ai_prob, price)
-                                
-                                # Only include if data is complete
-                                if player_name and point:
-                                    market_display_name = {
-                                        'player_shots': 'Shots',
-                                        'player_shots_on_target': 'Shots on Target',
-                                        'player_tackles': 'Tackles',
-                                        'player_passes': 'Passes',
-                                        'player_assists': 'Assists'
-                                    }.get(market_key, market_key)
-                                    
-                                    bet_description = f"{player_name} {over_under.capitalize()} {point} {market_display_name}"
-                                    
-                                    bm_key = bookmaker.get('key', '')
-                                    bm_region = 'UK' if bm_key in ['williamhill', 'skybet', 'paddypower', 'betfair', 'coral', 'ladbrokes', 'unibet'] else 'US'
-                                    
-                                    value_bets_list.append({
-                                        'match': f"{home_team} vs {away_team}",
-                                        'home_team': home_team,
-                                        'away_team': away_team,
-                                        'commence_time': commence_time,
-                                        'bet_type': 'Player Props',
-                                        'market': bet_description,
-                                        'ai_probability': round(ai_prob * 100, 2),
-                                        'implied_probability': round(implied_prob * 100, 2),
-                                        'historical_probability': round(ai_prob * 100, 2),
-                                        'ev': round(ev, 2),
-                                        'best_odds': round(price, 2),
-                                        'bookmaker': bookmaker.get('title'),
-                                        'region': bm_region,
-                                        'explanation': f"Player prop for {player_name} - {market_display_name} line at {point}"
-                                    })
+                            market_key = f"{team}_{point}"
+                            if market_key not in spreads_odds or price > spreads_odds[market_key]['odds']:
+                                spreads_odds[market_key] = {
+                                    'odds': price,
+                                    'bookmaker': bookmaker.get('title'),
+                                    'point': point,
+                                    'team': team,
+                                    'region': bm_region
+                                }
+            
+            # Create value bets for spreads (simplified - no AI model for spreads yet)
+            for market_key, odds_data in spreads_odds.items():
+                team = odds_data['team']
+                point = odds_data['point']
+                
+                # Use 50% probability as baseline for spreads (neutral)
+                ai_prob = 0.5
+                best_odds = odds_data['odds']
+                implied_prob = analyzer.calculate_implied_probability(best_odds)
+                ev = analyzer.calculate_ev(ai_prob, best_odds)
+                
+                bet_description = f"{team} {point:+.1f}"
+                
+                value_bets_list.append({
+                    'match': f"{home_team} vs {away_team}",
+                    'home_team': home_team,
+                    'away_team': away_team,
+                    'commence_time': commence_time,
+                    'bet_type': 'Spreads',
+                    'market': bet_description,
+                    'ai_probability': round(ai_prob * 100, 2),
+                    'implied_probability': round(implied_prob * 100, 2),
+                    'historical_probability': 50.0,
+                    'ev': round(ev, 2),
+                    'best_odds': round(best_odds, 2),
+                    'bookmaker': odds_data['bookmaker'],
+                    'region': odds_data['region'],
+                    'explanation': f"Handicap betting: {team} with {point:+.1f} goal handicap"
+                })
         
         # Sort by EV (highest first)
         value_bets_list.sort(key=lambda x: x['ev'], reverse=True)

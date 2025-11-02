@@ -32,18 +32,85 @@
             
             <!-- Tab Navigation -->
             <nav class="tabs">
-                <button class="tab-btn active" data-tab="value">Value Bets</button>
-                <button class="tab-btn" data-tab="table">PL Table</button>
-                <button class="tab-btn" data-tab="analytics">Team Analytics</button>
-                <button class="tab-btn" data-tab="odds">Live Odds</button>
-                <button class="tab-btn" data-tab="summary">Team Summary</button>
+                <button class="tab-btn active" data-tab="odds">Live Odds</button>
+                <button class="tab-btn" data-tab="value">Value Bets</button>
+                <button class="tab-btn" data-tab="statistics">Statistics</button>
             </nav>
 
+            <!-- Tab Content: Live Odds -->
+            <div id="odds-tab" class="tab-content active">
+                <div class="section-header">
+                    <h2>Live Bookmaker Odds</h2>
+                    <p class="subtitle">Real-time odds comparison for Premier League matches - Includes arbitrage detection</p>
+                </div>
+
+                <div id="odds-loading" class="loading">
+                    <div class="spinner"></div>
+                    <p>Loading live odds...</p>
+                </div>
+
+                <div class="odds-controls-enhanced">
+                    <div class="match-selector-section">
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
+                            <div class="filter-group">
+                                <label class="filter-label">League:</label>
+                                <select id="league-selector" class="form-select">
+                                    <option value="soccer_epl">Premier League</option>
+                                    <option value="soccer_spain_la_liga">La Liga</option>
+                                    <option value="soccer_germany_bundesliga">Bundesliga</option>
+                                </select>
+                            </div>
+                            <div class="filter-group">
+                                <label class="filter-label">Select Match:</label>
+                                <select id="match-selector" class="form-select">
+                                    <option value="all">All Matches</option>
+                                </select>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="filters-section">
+                    <div class="filter-group">
+                        <label class="filter-label">Show Markets:</label>
+                        <div class="bet-type-filters">
+                            <button class="filter-chip market-chip active" data-market="all">All Markets</button>
+                            <button class="filter-chip market-chip" data-market="h2h">Moneyline</button>
+                            <button class="filter-chip market-chip" data-market="totals">Goals O/U</button>
+                            <button class="filter-chip market-chip" data-market="spreads">Spreads</button>
+                            <button class="filter-chip market-chip" data-market="h2h_lay">Exchange Lay</button>
+                        </div>
+                    </div>
+                        
+                        <div class="filter-group">
+                            <label class="filter-label">Bookmaker Region:</label>
+                            <div class="bet-type-filters">
+                                <button class="filter-chip odds-region-chip active" data-odds-region="both">Both</button>
+                                <button class="filter-chip odds-region-chip" data-odds-region="uk">🇬🇧 UK Only</button>
+                                <button class="filter-chip odds-region-chip" data-odds-region="us">🇺🇸 US Only</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="odds-content"></div>
+                
+                <div id="odds-timestamp" style="text-align: center; color: var(--gray-600); font-size: 0.875rem; margin-top: 1rem;"></div>
+            </div>
+
             <!-- Tab Content: Value Bets -->
-            <div id="value-tab" class="tab-content active">
+            <div id="value-tab" class="tab-content">
                 <div class="value-controls">
-                    <div class="showing-count">
-                        Showing <span id="bet-count">0</span> of <span id="total-bets">0</span> bets
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1rem;">
+                        <div class="showing-count">
+                            Showing <span id="bet-count">0</span> of <span id="total-bets">0</span> bets
+                        </div>
+                        <div class="filter-group" style="margin: 0; min-width: 200px;">
+                            <select id="value-league-selector" class="form-select">
+                                <option value="soccer_epl">Premier League</option>
+                                <option value="soccer_spain_la_liga">La Liga</option>
+                                <option value="soccer_germany_bundesliga">Bundesliga</option>
+                            </select>
+                        </div>
                     </div>
                     
                     <div class="model-selector-section">
@@ -68,8 +135,7 @@
                                 <button class="filter-chip active" data-filter="all">All</button>
                                 <button class="filter-chip" data-filter="Moneyline">Moneyline</button>
                                 <button class="filter-chip" data-filter="Goals">Goals</button>
-                                <button class="filter-chip" data-filter="Corners">Corners</button>
-                                <button class="filter-chip" data-filter="Player Props">Player Props</button>
+                                <button class="filter-chip" data-filter="Spreads">Spreads</button>
                             </div>
                         </div>
                         
@@ -125,149 +191,21 @@
                 <div id="value-timestamp" style="text-align: center; color: var(--gray-600); font-size: 0.875rem; margin-top: 1.5rem;"></div>
             </div>
 
-            <!-- Tab Content: Team Analytics (CDF Charts) -->
-            <div id="analytics-tab" class="tab-content">
+            <!-- Tab Content: Statistics -->
+            <div id="statistics-tab" class="tab-content">
                 <div class="section-header">
-                    <h2>Team Statistical Analysis</h2>
-                    <p class="subtitle">Cumulative Distribution Functions for Goals, Corners, and Match Events</p>
+                    <h2>Statistics & Analytics</h2>
+                    <p class="subtitle">Premier League data and team analysis</p>
                 </div>
-
-                <!-- Team Selector -->
-                <div class="team-selector-container">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 1.5rem;">
-                        <h3 style="margin: 0;">Select a Team to Analyze</h3>
-                        <div class="form-group" style="margin: 0; min-width: 200px;">
-                            <select id="season-filter" class="form-select">
-                                <option value="1">Current Season</option>
-                                <option value="2">Last Season</option>
-                                <option value="3">Last 3 Seasons</option>
-                                <option value="10" selected>Last 10 Seasons</option>
-                            </select>
-                        </div>
-                    </div>
-                    <div class="team-grid">
-                        <div class="team-option" data-team="Arsenal">Arsenal</div>
-                        <div class="team-option" data-team="Bournemouth">AFC Bournemouth</div>
-                        <div class="team-option" data-team="Tottenham">Tottenham Hotspur</div>
-                        <div class="team-option" data-team="Sunderland">Sunderland</div>
-                        <div class="team-option" data-team="Man City">Manchester City</div>
-                        <div class="team-option" data-team="Man United">Manchester United</div>
-                        <div class="team-option" data-team="Liverpool">Liverpool</div>
-                        <div class="team-option" data-team="Aston Villa">Aston Villa</div>
-                        <div class="team-option" data-team="Chelsea">Chelsea</div>
-                        <div class="team-option" data-team="Crystal Palace">Crystal Palace</div>
-                        <div class="team-option" data-team="Brentford">Brentford</div>
-                        <div class="team-option" data-team="Newcastle">Newcastle United</div>
-                        <div class="team-option" data-team="Brighton">Brighton & Hove Albion</div>
-                        <div class="team-option" data-team="Everton">Everton</div>
-                        <div class="team-option" data-team="Leeds">Leeds United</div>
-                        <div class="team-option" data-team="Burnley">Burnley</div>
-                        <div class="team-option" data-team="Fulham">Fulham</div>
-                        <div class="team-option" data-team="Nott'm Forest">Nottingham Forest</div>
-                        <div class="team-option" data-team="West Ham">West Ham United</div>
-                        <div class="team-option" data-team="Wolves">Wolverhampton Wanderers</div>
-                    </div>
-                </div>
-
-                <!-- Charts Container -->
-                <div id="charts-container" class="charts-container">
-                    <!-- Goals Scored CDF Chart -->
-                    <div class="chart-card">
-                        <div class="chart-header">
-                            <h3>Goals Scored - Cumulative Distribution</h3>
-                            <div class="period-filter">
-                                <button class="period-btn active" data-chart="goals-scored" data-period="full">Full Match</button>
-                                <button class="period-btn" data-chart="goals-scored" data-period="first_half">1st Half</button>
-                                <button class="period-btn" data-chart="goals-scored" data-period="second_half">2nd Half</button>
-                            </div>
-                        </div>
-                        <div class="chart-wrapper">
-                            <canvas id="goals-scored-chart"></canvas>
-                        </div>
-                    </div>
-
-                    <!-- Goals Conceded CDF Chart -->
-                    <div class="chart-card">
-                        <div class="chart-header">
-                            <h3>Goals Conceded - Cumulative Distribution</h3>
-                            <div class="period-filter">
-                                <button class="period-btn active" data-chart="goals-conceded" data-period="full">Full Match</button>
-                                <button class="period-btn" data-chart="goals-conceded" data-period="first_half">1st Half</button>
-                                <button class="period-btn" data-chart="goals-conceded" data-period="second_half">2nd Half</button>
-                            </div>
-                        </div>
-                        <div class="chart-wrapper">
-                            <canvas id="goals-conceded-chart"></canvas>
-                        </div>
-                    </div>
-
-                    <!-- Corners CDF Chart -->
-                    <div class="chart-card">
-                        <div class="chart-header">
-                            <h3>Corners - Cumulative Distribution</h3>
-                            <div class="period-filter">
-                                <button class="period-btn active" data-chart="corners" data-period="full">Full Match</button>
-                                <button class="period-btn" data-chart="corners" data-period="first_half">1st Half</button>
-                                <button class="period-btn" data-chart="corners" data-period="second_half">2nd Half</button>
-                            </div>
-                        </div>
-                        <div class="chart-wrapper">
-                            <canvas id="corners-chart"></canvas>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- Tab Content: Live Odds -->
-            <div id="odds-tab" class="tab-content">
-                <div class="section-header">
-                    <h2>Live Bookmaker Odds</h2>
-                    <p class="subtitle">Real-time odds comparison for Premier League matches - UK & US bookmakers</p>
-                </div>
-
-                <div id="odds-loading" class="loading">
-                    <div class="spinner"></div>
-                    <p>Loading live odds...</p>
-                </div>
-
-                <div class="odds-controls-enhanced">
-                    <div class="match-selector-section">
-                        <div class="filter-group" style="flex: 1;">
-                            <label class="filter-label">Select Match:</label>
-                            <select id="match-selector" class="form-select">
-                                <option value="all">All Matches</option>
-                            </select>
-                        </div>
-                    </div>
-                    
-                    <div class="filters-section">
-                        <div class="filter-group">
-                            <label class="filter-label">Show Markets:</label>
-                            <div class="bet-type-filters">
-                                <button class="filter-chip market-chip active" data-market="all">All Markets</button>
-                                <button class="filter-chip market-chip" data-market="h2h">Moneyline</button>
-                                <button class="filter-chip market-chip" data-market="totals">Goals</button>
-                                <button class="filter-chip market-chip" data-market="corners">Corners</button>
-                            </div>
-                        </div>
-                        
-                        <div class="filter-group">
-                            <label class="filter-label">Bookmaker Region:</label>
-                            <div class="bet-type-filters">
-                                <button class="filter-chip odds-region-chip active" data-odds-region="both">Both</button>
-                                <button class="filter-chip odds-region-chip" data-odds-region="uk">🇬🇧 UK Only</button>
-                                <button class="filter-chip odds-region-chip" data-odds-region="us">🇺🇸 US Only</button>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="odds-content"></div>
                 
-                <div id="odds-timestamp" style="text-align: center; color: var(--gray-600); font-size: 0.875rem; margin-top: 1rem;"></div>
-            </div>
+                <!-- Sub-navigation for Statistics -->
+                <nav class="sub-tabs">
+                    <button class="sub-tab-btn active" data-subtab="table">PL Table</button>
+                    <button class="sub-tab-btn" data-subtab="analytics">Team Analytics</button>
+                    <button class="sub-tab-btn" data-subtab="summary">Team Summary</button>
+                </nav>
 
-            <!-- Tab Content: Premier League Table -->
+                <!-- Sub-tab: Premier League Table -->
             <div id="table-tab" class="tab-content">
                 <div class="section-header">
                     <h2>Current Premier League Table</h2>
@@ -280,9 +218,10 @@
                 </div>
 
                 <div id="pl-table-content"></div>
-            </div>
+                </div>
 
-            <!-- Tab Content: Team Summary -->
+                <!-- Sub-tab: Team Analytics -->
+                <div id="analytics-subtab" class="sub-tab-content">
             <div id="summary-tab" class="tab-content">
                 <div class="section-header">
                     <h2>Team Summary Statistics</h2>
@@ -304,6 +243,7 @@
                 </div>
 
                 <div id="team-summaries-table"></div>
+                </div>
             </div>
 
         </div>
