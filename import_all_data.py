@@ -34,7 +34,8 @@ def download_csv(url):
     """Download CSV file from URL"""
     try:
         with urllib.request.urlopen(url, timeout=10) as response:
-            data = response.read().decode('utf-8')
+            # Use utf-8-sig to handle BOM character in CSV files
+            data = response.read().decode('utf-8-sig')
             return data
     except Exception as e:
         return None
@@ -86,6 +87,21 @@ def parse_csv_data(csv_data):
             home_corners_ht = int(home_corners * 0.4)
             away_corners_ht = int(away_corners * 0.4)
             
+            # Betting odds - Bet365 (most common)
+            odds_home_b365 = float(row.get('B365H', 0) or 0) if row.get('B365H') else None
+            odds_draw_b365 = float(row.get('B365D', 0) or 0) if row.get('B365D') else None
+            odds_away_b365 = float(row.get('B365A', 0) or 0) if row.get('B365A') else None
+            
+            # Market average odds (if available)
+            odds_home_avg = float(row.get('AvgH', row.get('BbAvH', 0)) or 0) if row.get('AvgH') or row.get('BbAvH') else None
+            odds_draw_avg = float(row.get('AvgD', row.get('BbAvD', 0)) or 0) if row.get('AvgD') or row.get('BbAvD') else None
+            odds_away_avg = float(row.get('AvgA', row.get('BbAvA', 0)) or 0) if row.get('AvgA') or row.get('BbAvA') else None
+            
+            # Max odds (best available)
+            odds_home_max = float(row.get('MaxH', row.get('BbMxH', 0)) or 0) if row.get('MaxH') or row.get('BbMxH') else None
+            odds_draw_max = float(row.get('MaxD', row.get('BbMxD', 0)) or 0) if row.get('MaxD') or row.get('BbMxD') else None
+            odds_away_max = float(row.get('MaxA', row.get('BbMxA', 0)) or 0) if row.get('MaxA') or row.get('BbMxA') else None
+            
             match = {
                 'date': match_date,
                 'home_team': row['HomeTeam'],
@@ -101,6 +117,16 @@ def parse_csv_data(csv_data):
                 'home_corners_ht': home_corners_ht,
                 'away_corners_ht': away_corners_ht,
                 'referee': row.get('Referee', ''),
+                # Betting odds
+                'odds_home_b365': odds_home_b365,
+                'odds_draw_b365': odds_draw_b365,
+                'odds_away_b365': odds_away_b365,
+                'odds_home_avg': odds_home_avg,
+                'odds_draw_avg': odds_draw_avg,
+                'odds_away_avg': odds_away_avg,
+                'odds_home_max': odds_home_max,
+                'odds_draw_max': odds_draw_max,
+                'odds_away_max': odds_away_max,
             }
             
             matches.append(match)
@@ -164,8 +190,11 @@ def import_all_data():
                         home_goals_second_half, away_goals_second_half,
                         home_corners_total, away_corners_total,
                         home_corners_first_half, away_corners_first_half,
-                        referee, venue
-                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        referee, venue,
+                        odds_home_b365, odds_draw_b365, odds_away_b365,
+                        odds_home_avg, odds_draw_avg, odds_away_avg,
+                        odds_home_max, odds_draw_max, odds_away_max
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ''', (
                     match['date'],
                     season,
@@ -182,7 +211,16 @@ def import_all_data():
                     match['home_corners_ht'],
                     match['away_corners_ht'],
                     match['referee'],
-                    f"{match['home_team']} Stadium"
+                    f"{match['home_team']} Stadium",
+                    match['odds_home_b365'],
+                    match['odds_draw_b365'],
+                    match['odds_away_b365'],
+                    match['odds_home_avg'],
+                    match['odds_draw_avg'],
+                    match['odds_away_avg'],
+                    match['odds_home_max'],
+                    match['odds_draw_max'],
+                    match['odds_away_max']
                 ))
                 
                 teams_set.add(match['home_team'])

@@ -1605,12 +1605,19 @@ function renderBacktestResults(data) {
     
     const profitClass = data.profit_loss >= 0 ? 'stat-positive' : 'stat-negative';
     const roiClass = data.roi >= 0 ? 'stat-positive' : 'stat-negative';
+    const oddsIndicator = data.using_actual_odds 
+        ? '<span class="odds-badge actual">✓ Using Actual Historical Odds (Bet365)</span>'
+        : '<span class="odds-badge simulated">⚠️ Using Simulated Odds (no historical data)</span>';
     
     let html = `
         <div class="backtest-summary">
             <div class="summary-header">
                 <h3>📊 Backtest Results</h3>
                 <p class="subtitle">Model: ${getModelName(data.model)} | ${data.gameweeks_analyzed} Gameweeks | £${data.stake_per_bet} per bet</p>
+                <div class="methodology-note">
+                    ${oddsIndicator}
+                    <p class="method-text">🔬 ${data.methodology || 'Point-in-time analysis prevents lookahead bias'}</p>
+                </div>
             </div>
             
             <div class="stats-grid">
