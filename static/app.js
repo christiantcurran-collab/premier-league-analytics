@@ -1605,9 +1605,15 @@ function renderBacktestResults(data) {
     
     const profitClass = data.profit_loss >= 0 ? 'stat-positive' : 'stat-negative';
     const roiClass = data.roi >= 0 ? 'stat-positive' : 'stat-negative';
-    const oddsIndicator = data.using_actual_odds 
-        ? '<span class="odds-badge actual">✓ Using Actual Historical Odds (Bet365)</span>'
-        : '<span class="odds-badge simulated">⚠️ Using Simulated Odds (no historical data)</span>';
+    
+    let oddsIndicator;
+    if (data.exchange_adjusted && data.using_actual_odds) {
+        oddsIndicator = `<span class="odds-badge actual">✓ Exchange-Adjusted Odds (+${((data.exchange_multiplier-1)*100).toFixed(1)}% vs Bet365)</span>`;
+    } else if (data.using_actual_odds) {
+        oddsIndicator = '<span class="odds-badge actual">✓ Using Actual Historical Odds (Bet365)</span>';
+    } else {
+        oddsIndicator = '<span class="odds-badge simulated">⚠️ Using Simulated Odds (no historical data)</span>';
+    }
     
     let html = `
         <div class="backtest-summary">

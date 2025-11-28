@@ -20,6 +20,16 @@ app.secret_key = secrets.token_hex(32)  # Generate secure secret key for session
 # Database setup
 DATABASE = 'premier_league.db'
 
+# Exchange Odds Adjustment
+# Bet365 odds have ~8% margin, but exchanges offer ~2% margin
+# Example: 1.83 on Bet365 = 1.93 on exchange (5.46% better)
+EXCHANGE_ODDS_MULTIPLIER = 1.93 / 1.83  # ≈ 1.0546
+
+# Odds Caching - store fetched odds for 1 hour
+ODDS_CACHE = {}
+ODDS_CACHE_EXPIRY = 3600  # 1 hour in seconds
+ODDS_LAST_FETCH = None
+
 # External API Configuration
 FPL_API_BASE = 'https://fantasy.premierleague.com/api'
 TWITTER_BEARER_TOKEN = os.environ.get('TWITTER_BEARER_TOKEN', '')  # Optional - for X sentiment
@@ -1960,10 +1970,29 @@ def fetch_betfair_markets():
     return None
 
 def fetch_league_odds(sport='soccer_epl'):
-    """Fetch odds from The Odds API for any league (includes Betfair data)"""
+    """
+    Fetch odds from The Odds API for any league (includes Betfair data).
+    Results are cached for 1 hour to reduce API calls.
+    """
+    global ODDS_CACHE, ODDS_LAST_FETCH
+    
+    current_time = datetime.utcnow()
+    cache_key = sport
+    
+    # Check if we have valid cached data
+    if cache_key in ODDS_CACHE:
+        cached_data, cached_time = ODDS_CACHE[cache_key]
+        age_seconds = (current_time - cached_time).total_seconds()
+        
+        if age_seconds < ODDS_CACHE_EXPIRY:
+            print(f"Using cached odds for {sport} (age: {int(age_seconds)}s)")
+            return cached_data
+        else:
+            print(f"Cache expired for {sport} (age: {int(age_seconds)}s)")
+    
+    # Fetch fresh data from API
     try:
-        # Fetch odds for specified league
-        # The Odds API aggregates from multiple sources including Betfair
+        print(f"Fetching fresh odds for {sport} from API...")
         url = f"{ODDS_API_BASE_URL}/sports/{sport}/odds"
         params = {
             'apiKey': ODDS_API_KEY,
@@ -1977,10 +2006,22 @@ def fetch_league_odds(sport='soccer_epl'):
         response.raise_for_status()
         
         data = response.json()
+        
+        # Cache the data
+        ODDS_CACHE[cache_key] = (data, current_time)
+        ODDS_LAST_FETCH = current_time
+        print(f"Cached {len(data)} matches for {sport}")
+        
         return data
         
     except requests.exceptions.RequestException as e:
         print(f"Error fetching odds for {sport}: {e}")
+        
+        # Return stale cache if available
+        if cache_key in ODDS_CACHE:
+            print(f"Returning stale cache for {sport}")
+            return ODDS_CACHE[cache_key][0]
+        
         return None
 
 def fetch_premier_league_odds():
@@ -2498,10 +2539,17 @@ def team_cdf(team_name):
 
 @app.route('/api/live-odds')
 def live_odds():
-    """Get live odds from The Odds API"""
+    """Get live odds from The Odds API (cached for 1 hour)"""
     try:
         # Get league from query params
         league = request.args.get('league', 'soccer_epl')
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
+        
+        # Force refresh if requested
+        if force_refresh and league in ODDS_CACHE:
+            del ODDS_CACHE[league]
+            print(f"Force refresh requested for {league}")
+        
         odds_data = fetch_league_odds(league)
         
         if odds_data is None:
@@ -2509,14 +2557,52 @@ def live_odds():
         
         formatted_data = format_odds_data(odds_data)
         
+        # Get cache info
+        cache_info = {}
+        if league in ODDS_CACHE:
+            cached_time = ODDS_CACHE[league][1]
+            age_seconds = (datetime.utcnow() - cached_time).total_seconds()
+            cache_info = {
+                'cached_at': cached_time.isoformat(),
+                'age_seconds': int(age_seconds),
+                'expires_in_seconds': max(0, int(ODDS_CACHE_EXPIRY - age_seconds)),
+                'is_cached': True
+            }
+        else:
+            cache_info = {'is_cached': False}
+        
         return jsonify({
             'matches': formatted_data,
-            'last_updated': datetime.utcnow().isoformat()
+            'last_updated': datetime.utcnow().isoformat(),
+            'cache': cache_info
         })
         
     except Exception as e:
         print(f"Error in live_odds endpoint: {e}")
         return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/odds-cache-status')
+def odds_cache_status():
+    """Get the status of the odds cache"""
+    current_time = datetime.utcnow()
+    cache_status = {}
+    
+    for league, (data, cached_time) in ODDS_CACHE.items():
+        age_seconds = (current_time - cached_time).total_seconds()
+        cache_status[league] = {
+            'matches_cached': len(data),
+            'cached_at': cached_time.isoformat(),
+            'age_seconds': int(age_seconds),
+            'expires_in_seconds': max(0, int(ODDS_CACHE_EXPIRY - age_seconds)),
+            'is_stale': age_seconds >= ODDS_CACHE_EXPIRY
+        }
+    
+    return jsonify({
+        'cache_expiry_seconds': ODDS_CACHE_EXPIRY,
+        'leagues': cache_status,
+        'current_time': current_time.isoformat()
+    })
 
 @app.route('/api/value-bets')
 @require_auth
@@ -3120,7 +3206,9 @@ def backtest():
             'stake_per_bet': stake,
             'total_matches': len(completed_matches),
             'using_actual_odds': using_actual_odds,
-            'methodology': 'Point-in-time analysis: AI models only use data available before each match',
+            'exchange_adjusted': True,
+            'exchange_multiplier': round(EXCHANGE_ODDS_MULTIPLIER, 4),
+            'methodology': f'Point-in-time analysis with exchange-adjusted odds (+{(EXCHANGE_ODDS_MULTIPLIER-1)*100:.1f}%)',
             'bets_placed': 0,
             'bets_won': 0,
             'bets_lost': 0,
@@ -3162,13 +3250,14 @@ def backtest():
                 actual_result = 'draw'
             
             # Get ACTUAL historical odds from database (or estimate if not available)
+            # Apply exchange adjustment (Bet365 has ~8% margin, exchange has ~2%)
             if using_actual_odds and match['odds_home_b365']:
                 actual_odds = {
-                    'home_win': float(match['odds_home_b365']),
-                    'draw': float(match['odds_draw_b365']),
-                    'away_win': float(match['odds_away_b365'])
+                    'home_win': float(match['odds_home_b365']) * EXCHANGE_ODDS_MULTIPLIER,
+                    'draw': float(match['odds_draw_b365']) * EXCHANGE_ODDS_MULTIPLIER,
+                    'away_win': float(match['odds_away_b365']) * EXCHANGE_ODDS_MULTIPLIER
                 }
-                odds_source = 'Bet365'
+                odds_source = 'Exchange (adjusted)'
             else:
                 # Fallback: use estimated odds (marked as simulated)
                 actual_odds = {
