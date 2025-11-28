@@ -54,18 +54,122 @@ FPL_TEAM_MAPPING = {
 
 # Initialize database on app startup
 def init_db():
-    """Initialize database with schema"""
-    if not os.path.exists(DATABASE):
+    """Initialize database with schema and import data if needed"""
+    db_exists = os.path.exists(DATABASE)
+    
+    if not db_exists:
+        print("Database not found, creating...")
         db = get_db()
         try:
             with app.open_resource('schema.sql', mode='r') as f:
                 db.cursor().executescript(f.read())
             db.commit()
-            print("Database initialized!")
+            print("Database schema created!")
         except Exception as e:
-            print(f"Database initialization warning: {e}")
+            print(f"Database schema creation error: {e}")
         finally:
             db.close()
+    
+    # Check if database has data
+    try:
+        db = get_db()
+        cursor = db.execute('SELECT COUNT(*) FROM matches')
+        count = cursor.fetchone()[0]
+        db.close()
+        
+        if count == 0:
+            print(f"Database empty, importing data...")
+            import_historical_data()
+        else:
+            print(f"Database has {count} matches")
+    except Exception as e:
+        print(f"Database check error: {e}")
+        # Try to import data anyway
+        try:
+            import_historical_data()
+        except:
+            pass
+
+def import_historical_data():
+    """Import historical data from football-data.co.uk"""
+    import urllib.request
+    import csv
+    from io import StringIO
+    
+    print("Importing Premier League data...")
+    
+    # Import last 5 seasons for quick startup
+    seasons = ['2425', '2324', '2223', '2122', '2021']
+    total = 0
+    
+    for season_code in seasons:
+        url = f"https://www.football-data.co.uk/mmz4281/{season_code}/E0.csv"
+        try:
+            with urllib.request.urlopen(url, timeout=30) as response:
+                data = response.read().decode('utf-8-sig')
+            
+            csv_file = StringIO(data)
+            reader = csv.DictReader(csv_file)
+            
+            db = get_db()
+            cursor = db.cursor()
+            
+            for row in reader:
+                if not row.get('Date') or not row.get('HomeTeam'):
+                    continue
+                    
+                date_parts = row['Date'].split('/')
+                if len(date_parts) == 3:
+                    day, month, year = date_parts
+                    if len(year) == 2:
+                        year = '20' + year if int(year) < 50 else '19' + year
+                    match_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+                else:
+                    continue
+                
+                try:
+                    cursor.execute('''
+                        INSERT OR IGNORE INTO matches (
+                            match_date, season, home_team, away_team,
+                            home_goals_full_time, away_goals_full_time,
+                            home_goals_first_half, away_goals_first_half,
+                            home_goals_second_half, away_goals_second_half,
+                            home_corners_total, away_corners_total,
+                            home_corners_first_half, away_corners_first_half,
+                            referee, venue,
+                            odds_home_b365, odds_draw_b365, odds_away_b365
+                        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    ''', (
+                        match_date,
+                        f"20{season_code[:2]}/20{season_code[2:]}",
+                        row['HomeTeam'],
+                        row['AwayTeam'],
+                        int(row.get('FTHG', 0) or 0),
+                        int(row.get('FTAG', 0) or 0),
+                        int(row.get('HTHG', 0) or 0),
+                        int(row.get('HTAG', 0) or 0),
+                        int(row.get('FTHG', 0) or 0) - int(row.get('HTHG', 0) or 0),
+                        int(row.get('FTAG', 0) or 0) - int(row.get('HTAG', 0) or 0),
+                        int(row.get('HC', 0) or 0),
+                        int(row.get('AC', 0) or 0),
+                        0, 0,
+                        row.get('Referee', ''),
+                        f"{row['HomeTeam']} Stadium",
+                        float(row.get('B365H', 0) or 0) if row.get('B365H') else None,
+                        float(row.get('B365D', 0) or 0) if row.get('B365D') else None,
+                        float(row.get('B365A', 0) or 0) if row.get('B365A') else None
+                    ))
+                    total += 1
+                except:
+                    continue
+            
+            db.commit()
+            db.close()
+            print(f"  Season {season_code}: imported")
+        except Exception as e:
+            print(f"  Season {season_code}: error - {e}")
+    
+    print(f"Total matches imported: {total}")
 
 # Initialize database when module loads (for gunicorn/production)
 init_db()
