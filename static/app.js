@@ -33,7 +33,7 @@ const state = {
     currentSort: 'ev-desc',
     minEV: -50,
     currentRegion: 'both',
-    currentAIModel: 'complex',
+    currentAIModel: 'overall',
     currentDateFilter: 'all',
     currentLeague: 'soccer_epl',
     oddsMarketFilter: 'all',
@@ -1321,10 +1321,13 @@ function setupValueBetsFilters() {
             
             // Update description based on selected model
             const descriptions = {
-                'simple': 'Pure historical stats - Uses only this season\'s win/draw/loss rates and over/under frequencies',
-                'opponent': 'Opponent-adjusted - Considers team strength based on goal difference and attacking/defensive metrics',
-                'complex': 'Multi-factor AI - Uses historical data, home advantage factor, weighted recent form, and team strength metrics',
-                'anomaly': 'Bookmaker Anomaly Detector - Finds bookmakers offering 25%+ better odds than the market average'
+                'overall': '🤖 Ensemble AI combining ELO ratings (30%), Form analysis (25%), FPL sentiment (25%), and Anomaly detection (20%) for maximum accuracy',
+                'simple': '📊 Pure historical stats - Uses only this season\'s win/draw/loss rates and over/under frequencies',
+                'opponent': '⚔️ Opponent-adjusted - Considers team strength based on goal difference and attacking/defensive metrics',
+                'complex': '🧠 Multi-factor AI - Uses historical data, home advantage factor, weighted recent form, and team strength metrics',
+                'form_momentum': '📈 Form & Momentum - ELO-style power ratings, exponentially weighted recent form (last 5 games), head-to-head record, and goal scoring momentum trends',
+                'sentiment_external': '🔥 Sentiment & External Data - Fantasy Premier League ownership & transfers, player injury impact, price momentum, and team strength index combining all external factors',
+                'anomaly': '🎯 Bookmaker Anomaly Detector - Finds bookmakers offering 25%+ better odds than the market average'
             };
             
             modelDescription.innerHTML = `<small>${descriptions[state.currentAIModel]}</small>`;
@@ -1552,5 +1555,187 @@ function renderValueBets(bets) {
     containerEl.innerHTML = html;
 }
 
+// =============================================================================
+// BACKTESTING FUNCTIONALITY
+// =============================================================================
 
+// Setup backtesting
+function setupBacktesting() {
+    const runBacktestBtn = document.getElementById('run-backtest');
+    if (runBacktestBtn) {
+        runBacktestBtn.addEventListener('click', runBacktest);
+    }
+}
+
+// Run backtest
+async function runBacktest() {
+    const loadingEl = document.getElementById('backtest-loading');
+    const resultsEl = document.getElementById('backtest-results');
+    
+    const model = document.getElementById('backtest-model').value;
+    const gameweeks = document.getElementById('backtest-gameweeks').value;
+    const stake = document.getElementById('backtest-stake').value;
+    
+    loadingEl.style.display = 'flex';
+    resultsEl.innerHTML = '';
+    
+    try {
+        const response = await fetch(`/api/backtest?model=${model}&gameweeks=${gameweeks}&stake=${stake}`);
+        const data = await response.json();
+        
+        loadingEl.style.display = 'none';
+        
+        if (data.error) {
+            resultsEl.innerHTML = `<div class="error-message"><p>${data.error}</p></div>`;
+            return;
+        }
+        
+        renderBacktestResults(data);
+        
+    } catch (error) {
+        console.error('Error running backtest:', error);
+        loadingEl.style.display = 'none';
+        resultsEl.innerHTML = '<div class="error-message"><p>Unable to run backtest. Please try again.</p></div>';
+    }
+}
+
+// Render backtest results
+function renderBacktestResults(data) {
+    const resultsEl = document.getElementById('backtest-results');
+    
+    const profitClass = data.profit_loss >= 0 ? 'stat-positive' : 'stat-negative';
+    const roiClass = data.roi >= 0 ? 'stat-positive' : 'stat-negative';
+    
+    let html = `
+        <div class="backtest-summary">
+            <div class="summary-header">
+                <h3>📊 Backtest Results</h3>
+                <p class="subtitle">Model: ${getModelName(data.model)} | ${data.gameweeks_analyzed} Gameweeks | £${data.stake_per_bet} per bet</p>
+            </div>
+            
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-icon">🎯</div>
+                    <div class="stat-value">${data.accuracy}%</div>
+                    <div class="stat-label">Accuracy</div>
+                    <div class="stat-detail">${data.bets_won}/${data.bets_placed} bets won</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">💰</div>
+                    <div class="stat-value ${profitClass}">${data.profit_loss >= 0 ? '+' : ''}£${data.profit_loss.toFixed(2)}</div>
+                    <div class="stat-label">Profit/Loss</div>
+                    <div class="stat-detail">From £${data.total_staked} staked</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">📈</div>
+                    <div class="stat-value ${roiClass}">${data.roi >= 0 ? '+' : ''}${data.roi}%</div>
+                    <div class="stat-label">ROI</div>
+                    <div class="stat-detail">Return on Investment</div>
+                </div>
+                
+                <div class="stat-card">
+                    <div class="stat-icon">⚽</div>
+                    <div class="stat-value">${data.total_matches}</div>
+                    <div class="stat-label">Matches Analyzed</div>
+                    <div class="stat-detail">${data.bets_placed} qualifying bets</div>
+                </div>
+            </div>
+            
+            <div class="ev-analysis">
+                <h4>EV Analysis</h4>
+                <div class="ev-breakdown">
+                    <div class="ev-item">
+                        <span class="ev-label">Positive EV Bets:</span>
+                        <span class="ev-value">${data.ev_accuracy.positive_ev_bets} bets (${data.ev_accuracy.positive_ev_win_rate || 0}% win rate)</span>
+                    </div>
+                    <div class="ev-item">
+                        <span class="ev-label">Negative EV Bets:</span>
+                        <span class="ev-value">${data.ev_accuracy.negative_ev_bets} bets (${data.ev_accuracy.negative_ev_win_rate || 0}% win rate)</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bet-type-breakdown">
+                <h4>Performance by Bet Type</h4>
+                <div class="bet-type-grid">
+                    ${Object.entries(data.by_bet_type).map(([type, stats]) => `
+                        <div class="bet-type-card">
+                            <div class="bet-type-name">${type.replace('_', ' ').toUpperCase()}</div>
+                            <div class="bet-type-stats">
+                                <span>${stats.wins}/${stats.bets} wins</span>
+                                <span class="${stats.profit >= 0 ? 'stat-positive' : 'stat-negative'}">${stats.profit >= 0 ? '+' : ''}£${stats.profit.toFixed(2)}</span>
+                            </div>
+                        </div>
+                    `).join('')}
+                </div>
+            </div>
+        </div>
+        
+        <div class="detailed-bets">
+            <h4>📋 Detailed Bet History (${data.detailed_bets.length} bets)</h4>
+            <div class="bets-table-container">
+                <table class="bets-table">
+                    <thead>
+                        <tr>
+                            <th>Match</th>
+                            <th>Date</th>
+                            <th>Prediction</th>
+                            <th>AI Prob</th>
+                            <th>Odds</th>
+                            <th>EV</th>
+                            <th>Result</th>
+                            <th>P/L</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${data.detailed_bets.map(bet => `
+                            <tr class="${bet.won ? 'bet-won' : 'bet-lost'}">
+                                <td class="match-cell">${bet.match}</td>
+                                <td>${formatBacktestDate(bet.date)}</td>
+                                <td>${bet.prediction}</td>
+                                <td>${bet.ai_probability}%</td>
+                                <td>${bet.odds}</td>
+                                <td class="${bet.ev >= 0 ? 'stat-positive' : 'stat-negative'}">${bet.ev >= 0 ? '+' : ''}${bet.ev}%</td>
+                                <td>
+                                    <span class="result-badge ${bet.won ? 'won' : 'lost'}">${bet.won ? '✓' : '✗'}</span>
+                                    ${bet.actual_result}
+                                </td>
+                                <td class="${bet.profit >= 0 ? 'stat-positive' : 'stat-negative'}">${bet.profit >= 0 ? '+' : ''}£${bet.profit.toFixed(2)}</td>
+                            </tr>
+                        `).join('')}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    `;
+    
+    resultsEl.innerHTML = html;
+}
+
+// Helper function to get model display name
+function getModelName(model) {
+    const names = {
+        'overall': '🤖 Overall AI',
+        'complex': '🧠 Multi-Factor AI',
+        'form_momentum': '📈 Form & Momentum',
+        'sentiment_external': '🔥 Sentiment & FPL',
+        'simple': '📊 Simple Historical',
+        'opponent': '⚔️ Opponent-Adjusted',
+        'anomaly': '🎯 Bookmaker Anomaly'
+    };
+    return names[model] || model;
+}
+
+// Format backtest date
+function formatBacktestDate(dateStr) {
+    const date = new Date(dateStr);
+    return date.toLocaleDateString('en-GB', { day: 'numeric', month: 'short' });
+}
+
+// Initialize backtesting on page load
+document.addEventListener('DOMContentLoaded', () => {
+    setupBacktesting();
+});
 

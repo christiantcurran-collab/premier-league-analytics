@@ -1722,3 +1722,406 @@ body {
     outline: 2px solid var(--primary-blue);
     outline-offset: 2px;
 }
+
+/* =============================================================================
+   BACKTESTING STYLES
+   ============================================================================= */
+.backtest-controls {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+}
+
+.backtest-controls .filters-row {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+    gap: var(--spacing-lg);
+    align-items: end;
+}
+
+.btn-primary {
+    padding: var(--spacing-md) var(--spacing-xl);
+    background-color: var(--primary-blue);
+    color: var(--white);
+    border: none;
+    border-radius: var(--radius-md);
+    font-weight: 600;
+    font-size: 0.9375rem;
+    cursor: pointer;
+    transition: all var(--transition-base);
+    white-space: nowrap;
+}
+
+.btn-primary:hover {
+    background-color: var(--primary-blue-dark);
+    transform: translateY(-1px);
+    box-shadow: var(--shadow-md);
+}
+
+.backtest-summary {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    margin-bottom: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+}
+
+.backtest-summary .summary-header {
+    margin-bottom: var(--spacing-xl);
+    padding-bottom: var(--spacing-lg);
+    border-bottom: 2px solid var(--gray-200);
+}
+
+.backtest-summary .summary-header h3 {
+    font-size: 1.5rem;
+    font-weight: 700;
+    color: var(--primary-blue);
+    margin-bottom: var(--spacing-sm);
+}
+
+.stats-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+}
+
+.stat-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #ffffff 100%);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    text-align: center;
+    transition: all var(--transition-base);
+}
+
+.stat-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-md);
+}
+
+.stat-icon {
+    font-size: 2rem;
+    margin-bottom: var(--spacing-sm);
+}
+
+.stat-card .stat-value {
+    font-size: 2rem;
+    font-weight: 700;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-card .stat-label {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--gray-600);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: var(--spacing-xs);
+}
+
+.stat-detail {
+    font-size: 0.8125rem;
+    color: var(--gray-500);
+}
+
+.ev-analysis {
+    background-color: #f0f9ff;
+    border-left: 4px solid var(--accent-blue);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-lg);
+    margin-bottom: var(--spacing-xl);
+}
+
+.ev-analysis h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-md);
+}
+
+.ev-breakdown {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: var(--spacing-md);
+}
+
+.ev-item {
+    display: flex;
+    justify-content: space-between;
+    padding: var(--spacing-sm);
+    background-color: var(--white);
+    border-radius: var(--radius-sm);
+}
+
+.ev-label {
+    font-weight: 500;
+    color: var(--gray-700);
+}
+
+.ev-value {
+    font-weight: 600;
+    color: var(--gray-900);
+}
+
+.bet-type-breakdown {
+    margin-bottom: var(--spacing-xl);
+}
+
+.bet-type-breakdown h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-md);
+}
+
+.bet-type-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: var(--spacing-md);
+}
+
+.bet-type-card {
+    background-color: var(--gray-50);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-md);
+    padding: var(--spacing-md);
+    text-align: center;
+}
+
+.bet-type-name {
+    font-weight: 600;
+    color: var(--primary-blue);
+    margin-bottom: var(--spacing-sm);
+    font-size: 0.875rem;
+}
+
+.bet-type-stats {
+    display: flex;
+    justify-content: space-between;
+    font-size: 0.8125rem;
+    color: var(--gray-700);
+}
+
+.detailed-bets {
+    background-color: var(--white);
+    border: 1px solid var(--gray-200);
+    border-radius: var(--radius-lg);
+    padding: var(--spacing-xl);
+    box-shadow: var(--shadow-sm);
+}
+
+.detailed-bets h4 {
+    font-size: 1.125rem;
+    font-weight: 600;
+    color: var(--gray-900);
+    margin-bottom: var(--spacing-lg);
+}
+
+.bets-table-container {
+    overflow-x: auto;
+    border-radius: var(--radius-md);
+    border: 1px solid var(--gray-200);
+}
+
+.bets-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 0.875rem;
+}
+
+.bets-table thead {
+    background-color: var(--gray-50);
+}
+
+.bets-table th {
+    padding: var(--spacing-md);
+    text-align: left;
+    font-weight: 600;
+    color: var(--gray-700);
+    text-transform: uppercase;
+    font-size: 0.75rem;
+    letter-spacing: 0.05em;
+    border-bottom: 2px solid var(--gray-200);
+    white-space: nowrap;
+}
+
+.bets-table td {
+    padding: var(--spacing-md);
+    border-bottom: 1px solid var(--gray-200);
+    color: var(--gray-900);
+}
+
+.bets-table tbody tr {
+    transition: background-color var(--transition-fast);
+}
+
+.bets-table tbody tr:hover {
+    background-color: var(--gray-50);
+}
+
+.bets-table .bet-won {
+    background-color: #f0fff4;
+}
+
+.bets-table .bet-lost {
+    background-color: #fff5f5;
+}
+
+.match-cell {
+    font-weight: 500;
+    color: var(--primary-blue);
+    min-width: 180px;
+}
+
+.result-badge {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    font-size: 0.75rem;
+    font-weight: 700;
+    margin-right: var(--spacing-xs);
+}
+
+.result-badge.won {
+    background-color: #28a745;
+    color: white;
+}
+
+.result-badge.lost {
+    background-color: #dc3545;
+    color: white;
+}
+
+/* Mobile Backtesting Styles */
+@media (max-width: 768px) {
+    .backtest-controls .filters-row {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .stats-grid {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    .stat-card {
+        padding: var(--spacing-md);
+    }
+    
+    .stat-card .stat-value {
+        font-size: 1.5rem;
+    }
+    
+    .ev-breakdown {
+        grid-template-columns: 1fr;
+    }
+    
+    .bet-type-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .bets-table {
+        font-size: 0.8125rem;
+    }
+    
+    .bets-table th,
+    .bets-table td {
+        padding: var(--spacing-sm);
+    }
+    
+    .match-cell {
+        min-width: 140px;
+    }
+}
+
+@media (max-width: 480px) {
+    .backtest-controls .filters-row {
+        grid-template-columns: 1fr;
+    }
+    
+    .stats-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .bet-type-stats {
+        flex-direction: column;
+        gap: var(--spacing-xs);
+    }
+}
+
+/* =============================================================================
+   ENHANCED MOBILE RESPONSIVE STYLES
+   ============================================================================= */
+
+/* Additional mobile improvements */
+@media (max-width: 768px) {
+    /* Better grid layout for smaller screens */
+    .filters-row-secondary {
+        grid-template-columns: 1fr 1fr;
+    }
+    
+    /* Value bet card mobile improvements */
+    .value-bet-card {
+        display: flex;
+        flex-direction: column;
+        gap: var(--spacing-md);
+    }
+    
+    .bet-stat-col,
+    .bet-odds-col {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--spacing-sm) var(--spacing-md);
+        background-color: var(--gray-50);
+        border-radius: var(--radius-sm);
+    }
+    
+    .bet-stat-col .stat-label,
+    .bet-odds-col .stat-label {
+        margin-bottom: 0;
+    }
+    
+    /* Tab navigation - scrollable */
+    .tabs {
+        gap: 0;
+        padding-bottom: 2px;
+    }
+    
+    .tab-btn {
+        padding: var(--spacing-sm) var(--spacing-md);
+        font-size: 0.8125rem;
+    }
+    
+    /* Odds card mobile */
+    .best-odds-grid {
+        grid-template-columns: 1fr;
+    }
+    
+    .best-odds-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: var(--spacing-md);
+    }
+    
+    .outcome-label {
+        margin-bottom: 0;
+    }
+    
+    .outcome-odds {
+        font-size: 1.25rem;
+        margin-bottom: 0;
+    }
+    
+    .outcome-bookmaker {
+        display: none;
+    }
+}

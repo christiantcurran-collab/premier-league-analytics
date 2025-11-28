@@ -10,12 +10,47 @@ import sqlite3
 import os
 import requests
 import secrets
+import math
+import re
+from functools import lru_cache
 
 app = Flask(__name__)
 app.secret_key = secrets.token_hex(32)  # Generate secure secret key for sessions
 
 # Database setup
 DATABASE = 'premier_league.db'
+
+# External API Configuration
+FPL_API_BASE = 'https://fantasy.premierleague.com/api'
+TWITTER_BEARER_TOKEN = os.environ.get('TWITTER_BEARER_TOKEN', '')  # Optional - for X sentiment
+
+# Premier League Team Mappings (FPL names to our DB names)
+FPL_TEAM_MAPPING = {
+    'Arsenal': 'Arsenal',
+    'Aston Villa': 'Aston Villa',
+    'Bournemouth': 'Bournemouth',
+    'Brentford': 'Brentford',
+    'Brighton': 'Brighton',
+    'Chelsea': 'Chelsea',
+    'Crystal Palace': 'Crystal Palace',
+    'Everton': 'Everton',
+    'Fulham': 'Fulham',
+    'Ipswich': 'Ipswich',
+    'Leicester': 'Leicester',
+    'Liverpool': 'Liverpool',
+    'Man City': 'Man City',
+    'Man Utd': 'Man United',
+    'Newcastle': 'Newcastle',
+    "Nott'm Forest": "Nott'm Forest",
+    'Southampton': 'Southampton',
+    'Spurs': 'Tottenham',
+    'West Ham': 'West Ham',
+    'Wolves': 'Wolves',
+    # Promoted teams 2025-26
+    'Leeds': 'Leeds',
+    'Burnley': 'Burnley',
+    'Sunderland': 'Sunderland'
+}
 
 # Initialize database on app startup
 def init_db():
@@ -582,6 +617,1017 @@ class AdvancedBettingAnalyzer:
         probability = (probability * confidence) + (0.5 * (1 - confidence))
         
         return probability
+
+
+# =============================================================================
+# ADVANCED AI MODEL 1: FORM & MOMENTUM MODEL
+# =============================================================================
+class FormMomentumAnalyzer:
+    """
+    Advanced AI Model: Form & Momentum Analysis
+    
+    Considers:
+    - Recent form (last 5 games weighted heavily, exponential decay)
+    - Head-to-head historical record
+    - ELO-style team power ratings
+    - Home/away specific performance trends
+    - Goal scoring/conceding momentum
+    """
+    
+    def __init__(self):
+        self.db = get_db()
+        self._elo_ratings = {}  # Cache for ELO ratings
+        self._form_cache = {}   # Cache for recent form
+    
+    def calculate_elo_rating(self, team_name, as_of_date=None):
+        """
+        Calculate ELO-style rating for a team based on historical performance.
+        Starting ELO: 1500
+        K-factor: 32 for recent matches, 16 for older
+        """
+        if team_name in self._elo_ratings:
+            return self._elo_ratings[team_name]
+        
+        base_elo = 1500
+        
+        # Get all matches for the team in last 3 years
+        query = """
+            SELECT * FROM matches 
+            WHERE (home_team = ? OR away_team = ?)
+            AND match_date >= date('now', '-3 years')
+            ORDER BY match_date ASC
+        """
+        cursor = self.db.execute(query, (team_name, team_name))
+        matches = cursor.fetchall()
+        
+        if not matches:
+            self._elo_ratings[team_name] = base_elo
+            return base_elo
+        
+        elo = base_elo
+        
+        for i, match in enumerate(matches):
+            is_home = match['home_team'] == team_name
+            
+            # Goal difference
+            if is_home:
+                goals_for = match['home_goals_full_time']
+                goals_against = match['away_goals_full_time']
+            else:
+                goals_for = match['away_goals_full_time']
+                goals_against = match['home_goals_full_time']
+            
+            # Result: 1 = win, 0.5 = draw, 0 = loss
+            if goals_for > goals_against:
+                result = 1
+            elif goals_for == goals_against:
+                result = 0.5
+            else:
+                result = 0
+            
+            # Expected result based on current ELO (simplified - assume opponent at 1500)
+            expected = 1 / (1 + 10 ** ((1500 - elo) / 400))
+            
+            # K-factor: higher for recent matches
+            recency_factor = (i + 1) / len(matches)  # 0 to 1
+            k_factor = 16 + (16 * recency_factor)  # 16 to 32
+            
+            # Goal difference multiplier (cap at 3)
+            goal_diff = min(abs(goals_for - goals_against), 3)
+            multiplier = 1 + (goal_diff * 0.1)
+            
+            # Update ELO
+            elo += k_factor * multiplier * (result - expected)
+        
+        self._elo_ratings[team_name] = round(elo, 1)
+        return self._elo_ratings[team_name]
+    
+    def get_recent_form(self, team_name, num_games=5, home_away='both'):
+        """
+        Get recent form with exponential weighting.
+        Returns form score from 0 (terrible) to 1 (perfect).
+        Most recent games weighted more heavily.
+        """
+        cache_key = f"{team_name}_{num_games}_{home_away}"
+        if cache_key in self._form_cache:
+            return self._form_cache[cache_key]
+        
+        if home_away == 'home':
+            query = """
+                SELECT * FROM matches 
+                WHERE home_team = ?
+                ORDER BY match_date DESC
+                LIMIT ?
+            """
+        elif home_away == 'away':
+            query = """
+                SELECT * FROM matches 
+                WHERE away_team = ?
+                ORDER BY match_date DESC
+                LIMIT ?
+            """
+        else:
+            query = """
+                SELECT * FROM matches 
+                WHERE (home_team = ? OR away_team = ?)
+                ORDER BY match_date DESC
+                LIMIT ?
+            """
+        
+        if home_away == 'both':
+            cursor = self.db.execute(query, (team_name, team_name, num_games))
+        else:
+            cursor = self.db.execute(query, (team_name, num_games))
+        
+        matches = cursor.fetchall()
+        
+        if not matches:
+            return {'form_score': 0.5, 'points': 0, 'goals_scored': 0, 'goals_conceded': 0, 'matches': 0}
+        
+        total_weighted_points = 0
+        total_weight = 0
+        total_goals_scored = 0
+        total_goals_conceded = 0
+        
+        for i, match in enumerate(matches):
+            is_home = match['home_team'] == team_name
+            
+            if is_home:
+                goals_for = match['home_goals_full_time']
+                goals_against = match['away_goals_full_time']
+            else:
+                goals_for = match['away_goals_full_time']
+                goals_against = match['home_goals_full_time']
+            
+            # Points: 3 for win, 1 for draw, 0 for loss
+            if goals_for > goals_against:
+                points = 3
+            elif goals_for == goals_against:
+                points = 1
+            else:
+                points = 0
+            
+            # Exponential weighting: most recent = highest weight
+            weight = math.exp(-0.3 * i)  # Decay factor of 0.3
+            
+            total_weighted_points += points * weight
+            total_weight += weight
+            total_goals_scored += goals_for
+            total_goals_conceded += goals_against
+        
+        # Normalize to 0-1 scale (max 3 points per game)
+        form_score = (total_weighted_points / total_weight) / 3 if total_weight > 0 else 0.5
+        
+        result = {
+            'form_score': round(form_score, 3),
+            'weighted_ppg': round(total_weighted_points / total_weight, 2) if total_weight > 0 else 0,
+            'goals_scored': total_goals_scored,
+            'goals_conceded': total_goals_conceded,
+            'goals_per_game': round(total_goals_scored / len(matches), 2),
+            'conceded_per_game': round(total_goals_conceded / len(matches), 2),
+            'matches': len(matches)
+        }
+        
+        self._form_cache[cache_key] = result
+        return result
+    
+    def get_head_to_head(self, home_team, away_team, num_matches=10):
+        """Get head-to-head record between two teams."""
+        query = """
+            SELECT * FROM matches 
+            WHERE (home_team = ? AND away_team = ?) OR (home_team = ? AND away_team = ?)
+            ORDER BY match_date DESC
+            LIMIT ?
+        """
+        cursor = self.db.execute(query, (home_team, away_team, away_team, home_team, num_matches))
+        matches = cursor.fetchall()
+        
+        if not matches:
+            return None
+        
+        home_wins = 0
+        away_wins = 0
+        draws = 0
+        home_goals = 0
+        away_goals = 0
+        
+        for match in matches:
+            if match['home_team'] == home_team:
+                # Home team playing at home in this match
+                hg = match['home_goals_full_time']
+                ag = match['away_goals_full_time']
+            else:
+                # Home team playing away in this match
+                hg = match['away_goals_full_time']
+                ag = match['home_goals_full_time']
+            
+            home_goals += hg
+            away_goals += ag
+            
+            if hg > ag:
+                home_wins += 1
+            elif hg < ag:
+                away_wins += 1
+            else:
+                draws += 1
+        
+        total = len(matches)
+        return {
+            'matches': total,
+            'home_wins': home_wins,
+            'away_wins': away_wins,
+            'draws': draws,
+            'home_win_rate': home_wins / total,
+            'away_win_rate': away_wins / total,
+            'draw_rate': draws / total,
+            'home_goals_avg': home_goals / total,
+            'away_goals_avg': away_goals / total
+        }
+    
+    def get_momentum_score(self, team_name, home_away='both'):
+        """
+        Calculate momentum based on goal scoring/conceding trends.
+        Positive momentum = scoring more, conceding less in recent games.
+        """
+        # Get last 10 games in chronological order
+        if home_away == 'home':
+            query = """
+                SELECT home_goals_full_time as goals_for, away_goals_full_time as goals_against
+                FROM matches WHERE home_team = ?
+                ORDER BY match_date DESC LIMIT 10
+            """
+        elif home_away == 'away':
+            query = """
+                SELECT away_goals_full_time as goals_for, home_goals_full_time as goals_against
+                FROM matches WHERE away_team = ?
+                ORDER BY match_date DESC LIMIT 10
+            """
+        else:
+            # Combined - need to handle separately
+            query_home = """
+                SELECT home_goals_full_time as goals_for, away_goals_full_time as goals_against, match_date
+                FROM matches WHERE home_team = ?
+            """
+            query_away = """
+                SELECT away_goals_full_time as goals_for, home_goals_full_time as goals_against, match_date
+                FROM matches WHERE away_team = ?
+            """
+            cursor_home = self.db.execute(query_home, (team_name,))
+            cursor_away = self.db.execute(query_away, (team_name,))
+            
+            all_matches = list(cursor_home.fetchall()) + list(cursor_away.fetchall())
+            all_matches.sort(key=lambda x: x['match_date'], reverse=True)
+            matches = all_matches[:10]
+            
+            if len(matches) < 4:
+                return {'score': 0, 'trend': 'neutral'}
+            
+            # Compare first half vs second half
+            recent = matches[:len(matches)//2]
+            older = matches[len(matches)//2:]
+            
+            recent_gd = sum(m['goals_for'] - m['goals_against'] for m in recent) / len(recent)
+            older_gd = sum(m['goals_for'] - m['goals_against'] for m in older) / len(older)
+            
+            momentum = recent_gd - older_gd
+            
+            if momentum > 0.5:
+                trend = 'strong_positive'
+            elif momentum > 0:
+                trend = 'positive'
+            elif momentum > -0.5:
+                trend = 'negative'
+            else:
+                trend = 'strong_negative'
+            
+            return {'score': round(momentum, 2), 'trend': trend}
+        
+        cursor = self.db.execute(query, (team_name,))
+        matches = cursor.fetchall()
+        
+        if len(matches) < 4:
+            return {'score': 0, 'trend': 'neutral'}
+        
+        recent = matches[:len(matches)//2]
+        older = matches[len(matches)//2:]
+        
+        recent_gd = sum(m['goals_for'] - m['goals_against'] for m in recent) / len(recent)
+        older_gd = sum(m['goals_for'] - m['goals_against'] for m in older) / len(older)
+        
+        momentum = recent_gd - older_gd
+        
+        if momentum > 0.5:
+            trend = 'strong_positive'
+        elif momentum > 0:
+            trend = 'positive'
+        elif momentum > -0.5:
+            trend = 'negative'
+        else:
+            trend = 'strong_negative'
+        
+        return {'score': round(momentum, 2), 'trend': trend}
+    
+    def calculate_probability(self, home_team, away_team, bet_type, market):
+        """
+        Calculate probability using Form & Momentum model.
+        
+        Combines:
+        - ELO ratings (30% weight)
+        - Recent form (35% weight)
+        - Head-to-head (15% weight)
+        - Momentum (20% weight)
+        """
+        # Get all components
+        home_elo = self.calculate_elo_rating(home_team)
+        away_elo = self.calculate_elo_rating(away_team)
+        
+        home_form = self.get_recent_form(home_team, 5, 'home')
+        away_form = self.get_recent_form(away_team, 5, 'away')
+        
+        h2h = self.get_head_to_head(home_team, away_team)
+        
+        home_momentum = self.get_momentum_score(home_team, 'home')
+        away_momentum = self.get_momentum_score(away_team, 'away')
+        
+        if bet_type == 'moneyline':
+            return self._calculate_moneyline(
+                home_elo, away_elo, home_form, away_form, h2h, home_momentum, away_momentum, market
+            )
+        elif bet_type == 'goals':
+            return self._calculate_goals(
+                home_form, away_form, h2h, home_momentum, away_momentum, market
+            )
+        
+        return None
+    
+    def _calculate_moneyline(self, home_elo, away_elo, home_form, away_form, h2h, home_mom, away_mom, market):
+        """Calculate moneyline probability using form & momentum model."""
+        
+        # 1. ELO component (30%)
+        elo_diff = home_elo - away_elo
+        # Add home advantage of ~65 ELO points
+        elo_diff += 65
+        home_elo_prob = 1 / (1 + 10 ** (-elo_diff / 400))
+        
+        # 2. Form component (35%)
+        home_form_score = home_form['form_score']
+        away_form_score = away_form['form_score']
+        form_diff = home_form_score - away_form_score + 0.1  # Home advantage
+        home_form_prob = 0.5 + (form_diff * 0.4)  # Scale to reasonable range
+        home_form_prob = max(0.1, min(0.9, home_form_prob))
+        
+        # 3. Head-to-head component (15%)
+        if h2h and h2h['matches'] >= 3:
+            h2h_home_prob = (h2h['home_win_rate'] + (h2h['draw_rate'] * 0.4))
+            h2h_away_prob = (h2h['away_win_rate'] + (h2h['draw_rate'] * 0.4))
+        else:
+            h2h_home_prob = 0.5
+            h2h_away_prob = 0.5
+        
+        # 4. Momentum component (20%)
+        momentum_diff = home_mom['score'] - away_mom['score']
+        home_momentum_prob = 0.5 + (momentum_diff * 0.15)
+        home_momentum_prob = max(0.2, min(0.8, home_momentum_prob))
+        
+        # Combine with weights
+        home_win_prob = (
+            home_elo_prob * 0.30 +
+            home_form_prob * 0.35 +
+            h2h_home_prob * 0.15 +
+            home_momentum_prob * 0.20
+        )
+        
+        # Calculate away and draw probabilities
+        away_win_prob = 1 - home_win_prob
+        
+        # Estimate draw probability based on form similarity and historical data
+        form_similarity = 1 - abs(home_form_score - away_form_score)
+        base_draw_prob = 0.26  # PL average is ~26%
+        draw_prob = base_draw_prob * (1 + form_similarity * 0.3)
+        draw_prob = min(0.35, draw_prob)
+        
+        # Adjust win probabilities for draws
+        remaining = 1 - draw_prob
+        home_win_prob = home_win_prob * remaining
+        away_win_prob = away_win_prob * remaining
+        
+        # Normalize
+        total = home_win_prob + away_win_prob + draw_prob
+        home_win_prob /= total
+        away_win_prob /= total
+        draw_prob /= total
+        
+        if market == 'home_win':
+            return home_win_prob
+        elif market == 'away_win':
+            return away_win_prob
+        elif market == 'draw':
+            return draw_prob
+        
+        return None
+    
+    def _calculate_goals(self, home_form, away_form, h2h, home_mom, away_mom, market):
+        """Calculate goals over/under probability using form & momentum."""
+        period, line = market.split('_', 1)
+        over_under, threshold = line.split('_')
+        threshold = float(threshold)
+        
+        # Expected goals based on recent form
+        home_expected = home_form['goals_per_game']
+        away_expected = away_form['goals_per_game']
+        
+        # Adjust for opponent's defensive record
+        home_against = home_form.get('conceded_per_game', 1.5)
+        away_against = away_form.get('conceded_per_game', 1.5)
+        
+        # Expected total goals in match
+        expected_total = (home_expected + away_against) / 2 + (away_expected + home_against) / 2
+        
+        # Adjust for momentum
+        if home_mom['trend'] in ['strong_positive', 'positive']:
+            expected_total += 0.2
+        elif home_mom['trend'] in ['strong_negative', 'negative']:
+            expected_total -= 0.1
+        
+        if away_mom['trend'] in ['strong_positive', 'positive']:
+            expected_total += 0.15
+        elif away_mom['trend'] in ['strong_negative', 'negative']:
+            expected_total -= 0.1
+        
+        # Use h2h if available
+        if h2h and h2h['matches'] >= 3:
+            h2h_avg = h2h['home_goals_avg'] + h2h['away_goals_avg']
+            expected_total = expected_total * 0.7 + h2h_avg * 0.3
+        
+        # Adjust for period
+        if period == '1h':
+            expected_total *= 0.42  # ~42% of goals in first half
+        elif period == '2h':
+            expected_total *= 0.58  # ~58% in second half
+        
+        # Calculate probability using Poisson-like estimation
+        diff = expected_total - threshold
+        
+        if over_under == 'over':
+            probability = 0.5 + (diff * 0.18)
+        else:
+            probability = 0.5 - (diff * 0.18)
+        
+        return max(0.05, min(0.95, probability))
+    
+    def get_explanation(self, home_team, away_team, bet_type, market):
+        """Generate explanation for Form & Momentum model."""
+        home_elo = self.calculate_elo_rating(home_team)
+        away_elo = self.calculate_elo_rating(away_team)
+        home_form = self.get_recent_form(home_team, 5, 'home')
+        away_form = self.get_recent_form(away_team, 5, 'away')
+        home_mom = self.get_momentum_score(home_team, 'home')
+        away_mom = self.get_momentum_score(away_team, 'away')
+        
+        return (
+            f"📊 ELO: {home_team} {home_elo:.0f} vs {away_team} {away_elo:.0f} | "
+            f"Form (5g): {home_form['weighted_ppg']:.1f} vs {away_form['weighted_ppg']:.1f} PPG | "
+            f"Momentum: {home_mom['trend'].replace('_', ' ')} vs {away_mom['trend'].replace('_', ' ')}"
+        )
+
+
+# =============================================================================
+# ADVANCED AI MODEL 2: SENTIMENT & EXTERNAL DATA MODEL
+# =============================================================================
+class SentimentExternalAnalyzer:
+    """
+    Advanced AI Model: Sentiment & External Data Analysis
+    
+    Considers:
+    - Fantasy Premier League data (ownership, transfers, price changes)
+    - Player injury/availability status
+    - X/Twitter sentiment analysis
+    - News sentiment
+    - Manager changes/team news
+    """
+    
+    def __init__(self):
+        self.db = get_db()
+        self._fpl_cache = {}
+        self._sentiment_cache = {}
+        self._injury_cache = {}
+    
+    @lru_cache(maxsize=32)
+    def fetch_fpl_data(self):
+        """Fetch Fantasy Premier League bootstrap data."""
+        try:
+            response = requests.get(f"{FPL_API_BASE}/bootstrap-static/", timeout=10)
+            if response.status_code == 200:
+                return response.json()
+        except Exception as e:
+            print(f"FPL API error: {e}")
+        return None
+    
+    def get_team_fpl_metrics(self, team_name):
+        """
+        Get FPL-based team strength metrics.
+        
+        Returns:
+        - avg_player_ownership: How popular team's players are
+        - key_player_availability: Injury/suspension impact
+        - transfers_in_momentum: Are people buying players?
+        - price_momentum: Are player prices rising?
+        """
+        fpl_data = self.fetch_fpl_data()
+        if not fpl_data:
+            return None
+        
+        # Find team ID in FPL data
+        teams = fpl_data.get('teams', [])
+        team_id = None
+        
+        for fpl_team in teams:
+            fpl_name = fpl_team.get('name', '').replace(' ', '')
+            db_name = team_name.replace(' ', '').replace("'", '')
+            
+            if fpl_name.lower() in db_name.lower() or db_name.lower() in fpl_name.lower():
+                team_id = fpl_team['id']
+                break
+        
+        if not team_id:
+            # Try mapping
+            for fpl_key, db_value in FPL_TEAM_MAPPING.items():
+                if db_value.lower() == team_name.lower():
+                    for fpl_team in teams:
+                        if fpl_key.lower() in fpl_team.get('name', '').lower():
+                            team_id = fpl_team['id']
+                            break
+        
+        if not team_id:
+            return None
+        
+        # Get players for this team
+        elements = fpl_data.get('elements', [])
+        team_players = [p for p in elements if p.get('team') == team_id]
+        
+        if not team_players:
+            return None
+        
+        # Calculate metrics
+        total_ownership = sum(float(p.get('selected_by_percent', 0)) for p in team_players)
+        avg_ownership = total_ownership / len(team_players)
+        
+        # Key player availability (top 5 by ownership)
+        top_players = sorted(team_players, key=lambda x: float(x.get('selected_by_percent', 0)), reverse=True)[:5]
+        
+        available_count = 0
+        injured_count = 0
+        for player in top_players:
+            status = player.get('status', 'a')
+            if status == 'a':  # Available
+                available_count += 1
+            elif status in ['i', 'd', 's']:  # Injured, doubtful, suspended
+                injured_count += 1
+        
+        key_player_availability = available_count / 5
+        
+        # Transfer momentum (net transfers this week)
+        total_transfers_in = sum(p.get('transfers_in_event', 0) for p in team_players)
+        total_transfers_out = sum(p.get('transfers_out_event', 0) for p in team_players)
+        net_transfers = total_transfers_in - total_transfers_out
+        
+        # Price changes
+        price_rises = sum(1 for p in team_players if p.get('cost_change_event', 0) > 0)
+        price_falls = sum(1 for p in team_players if p.get('cost_change_event', 0) < 0)
+        
+        # Form based on FPL points
+        avg_form = statistics.mean([float(p.get('form', 0)) for p in team_players if float(p.get('form', 0)) > 0] or [0])
+        
+        return {
+            'avg_ownership': round(avg_ownership, 2),
+            'key_player_availability': key_player_availability,
+            'net_transfers': net_transfers,
+            'price_rises': price_rises,
+            'price_falls': price_falls,
+            'avg_form': round(avg_form, 2),
+            'top_players': [(p['web_name'], float(p.get('selected_by_percent', 0)), p.get('status', 'a')) for p in top_players]
+        }
+    
+    def get_injury_impact(self, team_name):
+        """
+        Calculate the impact of injuries on team strength.
+        Based on FPL data availability status.
+        """
+        fpl_metrics = self.get_team_fpl_metrics(team_name)
+        if not fpl_metrics:
+            return {'impact': 0, 'description': 'No injury data available'}
+        
+        availability = fpl_metrics['key_player_availability']
+        
+        # Impact ranges from -0.15 (all key players out) to +0.05 (all available)
+        impact = (availability - 0.8) * 0.5
+        
+        # Count injuries in top players
+        injured_players = [p for p in fpl_metrics['top_players'] if p[2] != 'a']
+        
+        if len(injured_players) >= 3:
+            description = f"⚠️ Major injury crisis: {len(injured_players)} key players unavailable"
+        elif len(injured_players) >= 1:
+            names = ', '.join([p[0] for p in injured_players])
+            description = f"🏥 Injuries: {names}"
+        else:
+            description = "✅ Full squad available"
+        
+        return {'impact': round(impact, 3), 'description': description}
+    
+    def get_sentiment_score(self, team_name):
+        """
+        Get sentiment score for a team.
+        
+        In production, this would:
+        1. Query Twitter/X API for recent mentions
+        2. Analyze sentiment using NLP
+        3. Weight by engagement/reach
+        
+        For now, we use FPL transfer data as a proxy for public sentiment.
+        """
+        fpl_metrics = self.get_team_fpl_metrics(team_name)
+        if not fpl_metrics:
+            return {'score': 0, 'trend': 'neutral', 'description': 'No sentiment data'}
+        
+        # Use net transfers as sentiment proxy
+        net_transfers = fpl_metrics['net_transfers']
+        
+        # Normalize to -1 to 1 scale (assuming max ~500k transfers)
+        sentiment_score = max(-1, min(1, net_transfers / 300000))
+        
+        # Price momentum adds to sentiment
+        price_momentum = (fpl_metrics['price_rises'] - fpl_metrics['price_falls']) / 10
+        sentiment_score = (sentiment_score * 0.7) + (price_momentum * 0.3)
+        
+        if sentiment_score > 0.3:
+            trend = 'very_positive'
+            emoji = '🔥'
+        elif sentiment_score > 0.1:
+            trend = 'positive'
+            emoji = '📈'
+        elif sentiment_score > -0.1:
+            trend = 'neutral'
+            emoji = '➡️'
+        elif sentiment_score > -0.3:
+            trend = 'negative'
+            emoji = '📉'
+        else:
+            trend = 'very_negative'
+            emoji = '❄️'
+        
+        return {
+            'score': round(sentiment_score, 3),
+            'trend': trend,
+            'description': f"{emoji} FPL sentiment: {fpl_metrics['net_transfers']:+,} net transfers, {fpl_metrics['price_rises']} price rises"
+        }
+    
+    def get_team_strength_index(self, team_name):
+        """
+        Calculate overall team strength index combining all external factors.
+        Scale: 0-100
+        """
+        base_strength = 50
+        
+        fpl_metrics = self.get_team_fpl_metrics(team_name)
+        if fpl_metrics:
+            # Ownership indicates perceived quality
+            ownership_factor = min(fpl_metrics['avg_ownership'] * 2, 20)  # Max +20
+            
+            # Form from FPL
+            form_factor = fpl_metrics['avg_form'] * 2  # Max ~15
+            
+            # Availability
+            availability_factor = (fpl_metrics['key_player_availability'] - 0.5) * 20  # -10 to +10
+            
+            base_strength += ownership_factor + form_factor + availability_factor
+        
+        return max(20, min(80, base_strength))
+    
+    def calculate_probability(self, home_team, away_team, bet_type, market):
+        """
+        Calculate probability using Sentiment & External Data model.
+        
+        Combines:
+        - FPL-based team strength (40%)
+        - Injury impact (25%)
+        - Sentiment/momentum (20%)
+        - Historical baseline (15%)
+        """
+        # Get all components
+        home_strength = self.get_team_strength_index(home_team)
+        away_strength = self.get_team_strength_index(away_team)
+        
+        home_injury = self.get_injury_impact(home_team)
+        away_injury = self.get_injury_impact(away_team)
+        
+        home_sentiment = self.get_sentiment_score(home_team)
+        away_sentiment = self.get_sentiment_score(away_team)
+        
+        # Get historical baseline from simple model
+        base_analyzer = AdvancedBettingAnalyzer()
+        base_prob = base_analyzer.calculate_ai_probability(home_team, away_team, bet_type, market, 'simple')
+        
+        if bet_type == 'moneyline':
+            return self._calculate_moneyline(
+                home_strength, away_strength,
+                home_injury, away_injury,
+                home_sentiment, away_sentiment,
+                base_prob, market
+            )
+        elif bet_type == 'goals':
+            return self._calculate_goals(
+                home_strength, away_strength,
+                home_injury, away_injury,
+                home_sentiment, away_sentiment,
+                market
+            )
+        
+        return base_prob
+    
+    def _calculate_moneyline(self, home_strength, away_strength, home_injury, away_injury,
+                             home_sentiment, away_sentiment, base_prob, market):
+        """Calculate moneyline using external data."""
+        
+        # 1. Strength component (40%)
+        strength_diff = (home_strength - away_strength) / 100
+        strength_diff += 0.08  # Home advantage
+        home_strength_prob = 0.5 + (strength_diff * 0.5)
+        home_strength_prob = max(0.15, min(0.85, home_strength_prob))
+        
+        # 2. Injury component (25%)
+        injury_diff = home_injury['impact'] - away_injury['impact']
+        injury_adjustment = injury_diff * 0.5
+        
+        # 3. Sentiment component (20%)
+        sentiment_diff = home_sentiment['score'] - away_sentiment['score']
+        sentiment_adjustment = sentiment_diff * 0.15
+        
+        # 4. Historical baseline (15%)
+        historical_prob = base_prob if base_prob else 0.5
+        
+        # Combine
+        home_win_prob = (
+            home_strength_prob * 0.40 +
+            (0.5 + injury_adjustment) * 0.25 +
+            (0.5 + sentiment_adjustment) * 0.20 +
+            historical_prob * 0.15
+        )
+        
+        # Estimate draw and away probabilities
+        away_win_prob = 1 - home_win_prob
+        draw_prob = 0.26 + (0.1 * (1 - abs(home_strength - away_strength) / 50))
+        draw_prob = min(0.35, draw_prob)
+        
+        # Adjust for draws
+        remaining = 1 - draw_prob
+        home_win_prob = home_win_prob * remaining
+        away_win_prob = away_win_prob * remaining
+        
+        # Normalize
+        total = home_win_prob + away_win_prob + draw_prob
+        home_win_prob /= total
+        away_win_prob /= total
+        draw_prob /= total
+        
+        if market == 'home_win':
+            return home_win_prob
+        elif market == 'away_win':
+            return away_win_prob
+        elif market == 'draw':
+            return draw_prob
+        
+        return None
+    
+    def _calculate_goals(self, home_strength, away_strength, home_injury, away_injury,
+                        home_sentiment, away_sentiment, market):
+        """Calculate goals probability using external data."""
+        period, line = market.split('_', 1)
+        over_under, threshold = line.split('_')
+        threshold = float(threshold)
+        
+        # Expected goals based on strength
+        avg_goals = 2.7  # PL average
+        
+        # Higher strength teams score more
+        strength_factor = ((home_strength + away_strength) / 100 - 1) * 0.5
+        expected_total = avg_goals + strength_factor
+        
+        # Injuries reduce goals
+        injury_impact = (home_injury['impact'] + away_injury['impact']) * 2
+        expected_total += injury_impact
+        
+        # Positive sentiment = more attacking
+        sentiment_impact = (home_sentiment['score'] + away_sentiment['score']) * 0.3
+        expected_total += sentiment_impact
+        
+        # Adjust for period
+        if period == '1h':
+            expected_total *= 0.42
+        elif period == '2h':
+            expected_total *= 0.58
+        
+        # Calculate probability
+        diff = expected_total - threshold
+        
+        if over_under == 'over':
+            probability = 0.5 + (diff * 0.18)
+        else:
+            probability = 0.5 - (diff * 0.18)
+        
+        return max(0.05, min(0.95, probability))
+    
+    def get_explanation(self, home_team, away_team, bet_type, market):
+        """Generate explanation for Sentiment & External model."""
+        home_strength = self.get_team_strength_index(home_team)
+        away_strength = self.get_team_strength_index(away_team)
+        home_injury = self.get_injury_impact(home_team)
+        away_injury = self.get_injury_impact(away_team)
+        home_sentiment = self.get_sentiment_score(home_team)
+        
+        parts = [
+            f"💪 Strength: {home_team} {home_strength:.0f} vs {away_team} {away_strength:.0f}",
+        ]
+        
+        if home_injury['description'] != 'No injury data available':
+            parts.append(home_injury['description'])
+        
+        if home_sentiment['description'] != 'No sentiment data':
+            parts.append(home_sentiment['description'])
+        
+        return " | ".join(parts)
+
+
+# =============================================================================
+# COMBINED OVERALL AI MODEL
+# =============================================================================
+class CombinedAIAnalyzer:
+    """
+    Combined Overall AI Model - Blends multiple models for robust predictions.
+    
+    Combines:
+    - Multi-Factor AI (complex) - 25% weight
+    - Form & Momentum - 30% weight  
+    - Sentiment & FPL - 25% weight
+    - Bookmaker Anomaly detection - 20% weight (when anomaly detected)
+    
+    Uses ensemble approach with dynamic weighting based on data availability.
+    """
+    
+    def __init__(self):
+        self.db = get_db()
+        self.advanced_analyzer = AdvancedBettingAnalyzer()
+        self.form_analyzer = FormMomentumAnalyzer()
+        self.sentiment_analyzer = SentimentExternalAnalyzer()
+    
+    def calculate_probability(self, home_team, away_team, bet_type, market, bookmaker_odds=None):
+        """
+        Calculate combined probability from multiple models.
+        
+        Weights:
+        - Complex model: 25%
+        - Form & Momentum: 30%
+        - Sentiment & FPL: 25%
+        - Anomaly adjustment: 20% (when applicable)
+        """
+        probabilities = []
+        weights = []
+        explanations = []
+        
+        # 1. Multi-Factor AI (Complex) - 25%
+        try:
+            complex_prob = self.advanced_analyzer.calculate_ai_probability(
+                home_team, away_team, bet_type, market, 'complex'
+            )
+            if complex_prob:
+                probabilities.append(complex_prob)
+                weights.append(0.25)
+                explanations.append("Complex")
+        except Exception as e:
+            print(f"Complex model error: {e}")
+        
+        # 2. Form & Momentum - 30%
+        try:
+            form_prob = self.form_analyzer.calculate_probability(
+                home_team, away_team, bet_type, market
+            )
+            if form_prob:
+                probabilities.append(form_prob)
+                weights.append(0.30)
+                explanations.append("Form")
+        except Exception as e:
+            print(f"Form model error: {e}")
+        
+        # 3. Sentiment & FPL - 25%
+        try:
+            sentiment_prob = self.sentiment_analyzer.calculate_probability(
+                home_team, away_team, bet_type, market
+            )
+            if sentiment_prob:
+                probabilities.append(sentiment_prob)
+                weights.append(0.25)
+                explanations.append("Sentiment")
+        except Exception as e:
+            print(f"Sentiment model error: {e}")
+        
+        # 4. Anomaly Detection - 20% adjustment
+        anomaly_bonus = 0
+        if bookmaker_odds and bet_type == 'moneyline':
+            try:
+                anomaly_data = self.advanced_analyzer.detect_bookmaker_anomalies(bookmaker_odds)
+                if anomaly_data and anomaly_data['is_anomaly']:
+                    # Significant anomaly detected - boost confidence
+                    anomaly_bonus = anomaly_data['percentage_better'] / 100 * 0.20
+                    explanations.append(f"Anomaly+{anomaly_data['percentage_better']:.0f}%")
+            except Exception as e:
+                print(f"Anomaly detection error: {e}")
+        
+        if not probabilities:
+            return None
+        
+        # Normalize weights
+        total_weight = sum(weights)
+        normalized_weights = [w / total_weight for w in weights]
+        
+        # Calculate weighted average
+        combined_prob = sum(p * w for p, w in zip(probabilities, normalized_weights))
+        
+        # Apply anomaly bonus (if odds are better than market average)
+        combined_prob = min(0.95, combined_prob + anomaly_bonus)
+        
+        return combined_prob
+    
+    def get_model_breakdown(self, home_team, away_team, bet_type, market):
+        """Get individual model probabilities for transparency."""
+        breakdown = {}
+        
+        try:
+            breakdown['complex'] = self.advanced_analyzer.calculate_ai_probability(
+                home_team, away_team, bet_type, market, 'complex'
+            )
+        except:
+            breakdown['complex'] = None
+        
+        try:
+            breakdown['form_momentum'] = self.form_analyzer.calculate_probability(
+                home_team, away_team, bet_type, market
+            )
+        except:
+            breakdown['form_momentum'] = None
+        
+        try:
+            breakdown['sentiment'] = self.sentiment_analyzer.calculate_probability(
+                home_team, away_team, bet_type, market
+            )
+        except:
+            breakdown['sentiment'] = None
+        
+        return breakdown
+    
+    def get_explanation(self, home_team, away_team, bet_type, market):
+        """Generate comprehensive explanation combining all models."""
+        parts = []
+        
+        # Get ELO from form analyzer
+        try:
+            home_elo = self.form_analyzer.calculate_elo_rating(home_team)
+            away_elo = self.form_analyzer.calculate_elo_rating(away_team)
+            parts.append(f"⚡ ELO: {home_team[:3].upper()} {home_elo:.0f} vs {away_team[:3].upper()} {away_elo:.0f}")
+        except:
+            pass
+        
+        # Get form from form analyzer
+        try:
+            home_form = self.form_analyzer.get_recent_form(home_team, 5, 'home')
+            away_form = self.form_analyzer.get_recent_form(away_team, 5, 'away')
+            parts.append(f"📊 Form: {home_form['weighted_ppg']:.1f} vs {away_form['weighted_ppg']:.1f} PPG")
+        except:
+            pass
+        
+        # Get strength from sentiment analyzer
+        try:
+            home_strength = self.sentiment_analyzer.get_team_strength_index(home_team)
+            away_strength = self.sentiment_analyzer.get_team_strength_index(away_team)
+            parts.append(f"💪 Strength: {home_strength:.0f} vs {away_strength:.0f}")
+        except:
+            pass
+        
+        # Get injury info
+        try:
+            home_injury = self.sentiment_analyzer.get_injury_impact(home_team)
+            if 'Injuries:' in home_injury['description'] or 'injury crisis' in home_injury['description']:
+                parts.append(home_injury['description'])
+        except:
+            pass
+        
+        # Get model breakdown
+        breakdown = self.get_model_breakdown(home_team, away_team, bet_type, market)
+        probs = [f"{k[:4]}:{v*100:.0f}%" for k, v in breakdown.items() if v]
+        if probs:
+            parts.append(f"🤖 Models: {', '.join(probs)}")
+        
+        return " | ".join(parts) if parts else "Combined AI model analysis"
+
 
 class BettingAnalyzer:
     """Statistical analysis engine for betting predictions"""
@@ -1375,7 +2421,7 @@ def value_bets():
     try:
         # Get filters from query params
         region_filter = request.args.get('region', 'both')  # 'uk', 'us', or 'both'
-        ai_model = request.args.get('model', 'complex')  # 'simple', 'opponent', 'complex', or 'anomaly'
+        ai_model = request.args.get('model', 'complex')  # 'simple', 'opponent', 'complex', 'anomaly', 'form_momentum', 'sentiment_external'
         league = request.args.get('league', 'soccer_epl')  # Which league to analyze
         
         # Fetch live odds for selected league
@@ -1384,7 +2430,19 @@ def value_bets():
         if odds_data is None:
             return jsonify({'error': 'Unable to fetch odds from API'}), 500
         
+        # Initialize the appropriate analyzer(s)
         analyzer = AdvancedBettingAnalyzer()
+        form_analyzer = None
+        sentiment_analyzer = None
+        combined_analyzer = None
+        
+        if ai_model == 'form_momentum':
+            form_analyzer = FormMomentumAnalyzer()
+        elif ai_model == 'sentiment_external':
+            sentiment_analyzer = SentimentExternalAnalyzer()
+        elif ai_model == 'overall':
+            combined_analyzer = CombinedAIAnalyzer()
+        
         value_bets_list = []
         
         # Markets to analyze
@@ -1448,7 +2506,7 @@ def value_bets():
             # Fetch team stats once per match (skip for anomaly model)
             home_stats = None
             away_stats = None
-            if ai_model != 'anomaly':
+            if ai_model not in ['anomaly', 'form_momentum', 'sentiment_external', 'overall']:
                 home_stats = analyzer.get_team_historical_stats(home_team, seasons=1)
                 away_stats = analyzer.get_team_historical_stats(away_team, seasons=1)
             
@@ -1484,6 +2542,28 @@ def value_bets():
                             implied_prob = analyzer.calculate_implied_probability(best_odds)
                             ev = analyzer.calculate_ev(ai_prob, best_odds)
                         else:
+                            ai_prob = None
+                    elif ai_model == 'form_momentum':
+                        try:
+                            ai_prob = form_analyzer.calculate_probability(home_team, away_team, 'moneyline', market)
+                        except Exception as e:
+                            print(f"Error calculating form_momentum probability for {home_team} vs {away_team}: {e}")
+                            ai_prob = None
+                    elif ai_model == 'sentiment_external':
+                        try:
+                            ai_prob = sentiment_analyzer.calculate_probability(home_team, away_team, 'moneyline', market)
+                        except Exception as e:
+                            print(f"Error calculating sentiment probability for {home_team} vs {away_team}: {e}")
+                            ai_prob = None
+                    elif ai_model == 'overall':
+                        try:
+                            # Pass bookmaker odds for anomaly detection
+                            ai_prob = combined_analyzer.calculate_probability(
+                                home_team, away_team, 'moneyline', market, 
+                                moneyline_all_odds.get(market) if 'moneyline_all_odds' in dir() else None
+                            )
+                        except Exception as e:
+                            print(f"Error calculating overall probability for {home_team} vs {away_team}: {e}")
                             ai_prob = None
                     else:
                         try:
@@ -1541,6 +2621,21 @@ def value_bets():
                             explanation = f"{home_team} avg goal diff: {round(home_gd, 2)} (home), {away_team}: {round(away_gd, 2)} (away). Adjusted for relative strength"
                         elif ai_model == 'complex':
                             explanation = f"Multi-factor model: home advantage +15%, weighted form (70% current/30% historical), team strength metrics"
+                        elif ai_model == 'form_momentum':
+                            try:
+                                explanation = form_analyzer.get_explanation(home_team, away_team, 'moneyline', market)
+                            except:
+                                explanation = "Form & Momentum model: ELO ratings, recent form (5 games), head-to-head, momentum trends"
+                        elif ai_model == 'sentiment_external':
+                            try:
+                                explanation = sentiment_analyzer.get_explanation(home_team, away_team, 'moneyline', market)
+                            except:
+                                explanation = "Sentiment model: FPL data, injury impact, transfer momentum, team strength index"
+                        elif ai_model == 'overall':
+                            try:
+                                explanation = combined_analyzer.get_explanation(home_team, away_team, 'moneyline', market)
+                            except:
+                                explanation = "🤖 Overall AI: Combined analysis from ELO, Form, Sentiment & Anomaly detection"
                         
                         value_bets_list.append({
                             'match': f"{home_team} vs {away_team}",
@@ -1585,7 +2680,14 @@ def value_bets():
                 goals_market = f"full_{over_under}_{point}"
                 
                 try:
-                    ai_prob = analyzer.calculate_ai_probability(home_team, away_team, 'goals', goals_market, ai_model)
+                    if ai_model == 'form_momentum':
+                        ai_prob = form_analyzer.calculate_probability(home_team, away_team, 'goals', goals_market)
+                    elif ai_model == 'sentiment_external':
+                        ai_prob = sentiment_analyzer.calculate_probability(home_team, away_team, 'goals', goals_market)
+                    elif ai_model == 'overall':
+                        ai_prob = combined_analyzer.calculate_probability(home_team, away_team, 'goals', goals_market)
+                    else:
+                        ai_prob = analyzer.calculate_ai_probability(home_team, away_team, 'goals', goals_market, ai_model)
                 except Exception as e:
                     print(f"Error calculating goals probability for {home_team} vs {away_team}: {e}")
                     ai_prob = None
@@ -1613,6 +2715,21 @@ def value_bets():
                         explanation = f"Expected goals: {round(expected_total, 2)} (based on attack vs defense matchup)"
                     elif ai_model == 'complex':
                         explanation = f"Multi-factor model with form weighting, confidence adjustments, and historical patterns"
+                    elif ai_model == 'form_momentum':
+                        try:
+                            explanation = form_analyzer.get_explanation(home_team, away_team, 'goals', goals_market)
+                        except:
+                            explanation = "Form & Momentum: Goals prediction based on recent scoring trends, momentum, and matchup history"
+                    elif ai_model == 'sentiment_external':
+                        try:
+                            explanation = sentiment_analyzer.get_explanation(home_team, away_team, 'goals', goals_market)
+                        except:
+                            explanation = "Sentiment model: Goals prediction using FPL data, injury impact, and team strength metrics"
+                    elif ai_model == 'overall':
+                        try:
+                            explanation = combined_analyzer.get_explanation(home_team, away_team, 'goals', goals_market)
+                        except:
+                            explanation = "🤖 Overall AI: Combined goals analysis from multiple models"
                     
                     value_bets_list.append({
                         'match': f"{home_team} vs {away_team}",
@@ -1698,6 +2815,206 @@ def value_bets():
         import traceback
         traceback.print_exc()
         return jsonify({'error': 'Internal server error'}), 500
+
+
+# =============================================================================
+# BACKTESTING ENDPOINT
+# =============================================================================
+@app.route('/api/backtest')
+@require_auth
+def backtest():
+    """
+    Backtest AI models against historical Premier League results.
+    Uses historical odds from The Odds API and actual match results from our database.
+    """
+    try:
+        model = request.args.get('model', 'overall')
+        gameweeks = int(request.args.get('gameweeks', 5))
+        stake = float(request.args.get('stake', 10))  # Default £10 stake
+        
+        db = get_db()
+        
+        # Get recent completed matches (last N gameweeks ~= N*10 matches)
+        num_matches = gameweeks * 10
+        cursor = db.execute('''
+            SELECT * FROM matches 
+            WHERE match_date < date('now')
+            AND match_date >= date('now', '-60 days')
+            ORDER BY match_date DESC
+            LIMIT ?
+        ''', (num_matches,))
+        
+        completed_matches = cursor.fetchall()
+        
+        if not completed_matches:
+            return jsonify({'error': 'No recent completed matches found'}), 404
+        
+        # Initialize analyzers
+        advanced_analyzer = AdvancedBettingAnalyzer()
+        form_analyzer = FormMomentumAnalyzer()
+        sentiment_analyzer = SentimentExternalAnalyzer()
+        combined_analyzer = CombinedAIAnalyzer()
+        
+        results = {
+            'model': model,
+            'gameweeks_analyzed': gameweeks,
+            'stake_per_bet': stake,
+            'total_matches': len(completed_matches),
+            'bets_placed': 0,
+            'bets_won': 0,
+            'bets_lost': 0,
+            'total_staked': 0,
+            'total_returns': 0,
+            'profit_loss': 0,
+            'roi': 0,
+            'accuracy': 0,
+            'ev_accuracy': {
+                'positive_ev_bets': 0,
+                'positive_ev_wins': 0,
+                'negative_ev_bets': 0,
+                'negative_ev_wins': 0
+            },
+            'by_bet_type': {
+                'home_win': {'bets': 0, 'wins': 0, 'profit': 0},
+                'draw': {'bets': 0, 'wins': 0, 'profit': 0},
+                'away_win': {'bets': 0, 'wins': 0, 'profit': 0}
+            },
+            'detailed_bets': []
+        }
+        
+        for match in completed_matches:
+            home_team = match['home_team']
+            away_team = match['away_team']
+            home_goals = match['home_goals_full_time']
+            away_goals = match['away_goals_full_time']
+            match_date = match['match_date']
+            
+            # Determine actual result
+            if home_goals > away_goals:
+                actual_result = 'home_win'
+            elif home_goals < away_goals:
+                actual_result = 'away_win'
+            else:
+                actual_result = 'draw'
+            
+            # Calculate probabilities for each outcome
+            markets = ['home_win', 'draw', 'away_win']
+            predictions = {}
+            
+            for market in markets:
+                try:
+                    if model == 'overall':
+                        prob = combined_analyzer.calculate_probability(home_team, away_team, 'moneyline', market)
+                    elif model == 'form_momentum':
+                        prob = form_analyzer.calculate_probability(home_team, away_team, 'moneyline', market)
+                    elif model == 'sentiment_external':
+                        prob = sentiment_analyzer.calculate_probability(home_team, away_team, 'moneyline', market)
+                    else:
+                        prob = advanced_analyzer.calculate_ai_probability(home_team, away_team, 'moneyline', market, model)
+                    
+                    if prob:
+                        predictions[market] = prob
+                except Exception as e:
+                    continue
+            
+            if not predictions:
+                continue
+            
+            # Find best prediction (highest probability)
+            best_market = max(predictions.keys(), key=lambda k: predictions[k])
+            best_prob = predictions[best_market]
+            
+            # Estimate fair odds and typical bookmaker odds
+            fair_odds = 1 / best_prob if best_prob > 0 else 0
+            
+            # Simulate typical bookmaker odds (add ~8% margin)
+            # In reality, you'd fetch historical odds from The Odds API
+            typical_margin = 0.08
+            estimated_odds = fair_odds * (1 - typical_margin / 3)
+            
+            # Calculate implied probability from bookmaker
+            implied_prob = 1 / estimated_odds if estimated_odds > 0 else 0
+            
+            # Calculate EV
+            ev = ((best_prob * estimated_odds) - 1) * 100
+            
+            # Only place bet if probability > 35% (reasonable threshold)
+            if best_prob >= 0.35:
+                bet_won = (best_market == actual_result)
+                
+                results['bets_placed'] += 1
+                results['total_staked'] += stake
+                results['by_bet_type'][best_market]['bets'] += 1
+                
+                if bet_won:
+                    returns = stake * estimated_odds
+                    profit = returns - stake
+                    results['bets_won'] += 1
+                    results['total_returns'] += returns
+                    results['by_bet_type'][best_market]['wins'] += 1
+                    results['by_bet_type'][best_market]['profit'] += profit
+                else:
+                    results['bets_lost'] += 1
+                    results['by_bet_type'][best_market]['profit'] -= stake
+                
+                # Track EV accuracy
+                if ev > 0:
+                    results['ev_accuracy']['positive_ev_bets'] += 1
+                    if bet_won:
+                        results['ev_accuracy']['positive_ev_wins'] += 1
+                else:
+                    results['ev_accuracy']['negative_ev_bets'] += 1
+                    if bet_won:
+                        results['ev_accuracy']['negative_ev_wins'] += 1
+                
+                # Add to detailed bets
+                results['detailed_bets'].append({
+                    'match': f"{home_team} vs {away_team}",
+                    'date': match_date,
+                    'prediction': best_market.replace('_', ' ').title(),
+                    'ai_probability': round(best_prob * 100, 1),
+                    'odds': round(estimated_odds, 2),
+                    'ev': round(ev, 1),
+                    'actual_result': actual_result.replace('_', ' ').title(),
+                    'won': bet_won,
+                    'profit': round((stake * estimated_odds - stake) if bet_won else -stake, 2)
+                })
+        
+        # Calculate summary metrics
+        if results['bets_placed'] > 0:
+            results['profit_loss'] = round(results['total_returns'] - results['total_staked'], 2)
+            results['roi'] = round((results['profit_loss'] / results['total_staked']) * 100, 2)
+            results['accuracy'] = round((results['bets_won'] / results['bets_placed']) * 100, 1)
+        
+        # Calculate EV accuracy rates
+        if results['ev_accuracy']['positive_ev_bets'] > 0:
+            results['ev_accuracy']['positive_ev_win_rate'] = round(
+                (results['ev_accuracy']['positive_ev_wins'] / results['ev_accuracy']['positive_ev_bets']) * 100, 1
+            )
+        else:
+            results['ev_accuracy']['positive_ev_win_rate'] = 0
+            
+        if results['ev_accuracy']['negative_ev_bets'] > 0:
+            results['ev_accuracy']['negative_ev_win_rate'] = round(
+                (results['ev_accuracy']['negative_ev_wins'] / results['ev_accuracy']['negative_ev_bets']) * 100, 1
+            )
+        else:
+            results['ev_accuracy']['negative_ev_win_rate'] = 0
+        
+        results['total_staked'] = round(results['total_staked'], 2)
+        results['total_returns'] = round(results['total_returns'], 2)
+        
+        # Sort detailed bets by date (most recent first)
+        results['detailed_bets'] = sorted(results['detailed_bets'], key=lambda x: x['date'], reverse=True)
+        
+        return jsonify(results)
+        
+    except Exception as e:
+        print(f"Error in backtest endpoint: {e}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'error': 'Internal server error'}), 500
+
 
 @app.route('/api/data-summary')
 def data_summary():

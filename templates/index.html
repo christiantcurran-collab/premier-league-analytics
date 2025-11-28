@@ -34,6 +34,7 @@
             <nav class="tabs">
                 <button class="tab-btn active" data-tab="odds">Live Odds</button>
                 <button class="tab-btn" data-tab="value">Value Bets</button>
+                <button class="tab-btn" data-tab="backtest">Backtest</button>
                 <button class="tab-btn" data-tab="statistics">Statistics</button>
             </nav>
 
@@ -114,16 +115,19 @@
                     </div>
                     
                     <div class="model-selector-section">
-                        <div class="filter-group" style="max-width: 600px;">
+                        <div class="filter-group" style="max-width: 700px;">
                             <label class="filter-label">AI Probability Model:</label>
                             <select id="ai-model-selector" class="form-select">
-                                <option value="simple">Simple Historical - Based purely on team's season stats</option>
-                                <option value="opponent">Opponent-Adjusted - Considers relative strength of opponent</option>
-                                <option value="complex" selected>Multi-Factor AI - Complex model with home advantage, form, matchups</option>
-                                <option value="anomaly">Bookmaker Anomaly - Identifies 25%+ better odds vs market average</option>
+                                <option value="overall" selected>🤖 Overall AI - Combined ensemble of all models (recommended)</option>
+                                <option value="simple">📊 Simple Historical - Based purely on team's season stats</option>
+                                <option value="opponent">⚔️ Opponent-Adjusted - Considers relative strength of opponent</option>
+                                <option value="complex">🧠 Multi-Factor AI - Complex model with home advantage, form, matchups</option>
+                                <option value="form_momentum">📈 Form & Momentum - ELO ratings, recent form (5 games), head-to-head, momentum</option>
+                                <option value="sentiment_external">🔥 Sentiment & FPL - FPL data, injuries, transfers, team strength index</option>
+                                <option value="anomaly">🎯 Bookmaker Anomaly - Identifies 25%+ better odds vs market average</option>
                             </select>
                             <div class="model-description" id="model-description">
-                                <small>Uses historical data, home advantage factor, weighted recent form, and team strength metrics</small>
+                                <small>🤖 Ensemble AI combining ELO ratings, Form analysis, FPL sentiment, and Anomaly detection for maximum accuracy</small>
                             </div>
                         </div>
                     </div>
@@ -189,6 +193,57 @@
                 <div id="value-bets-container"></div>
                 
                 <div id="value-timestamp" style="text-align: center; color: var(--gray-600); font-size: 0.875rem; margin-top: 1.5rem;"></div>
+            </div>
+
+            <!-- Tab Content: Backtest -->
+            <div id="backtest-tab" class="tab-content">
+                <div class="section-header">
+                    <h2>Model Backtesting</h2>
+                    <p class="subtitle">Test AI model performance against historical Premier League results</p>
+                </div>
+
+                <div class="backtest-controls">
+                    <div class="filters-row">
+                        <div class="filter-group">
+                            <label class="filter-label">AI Model:</label>
+                            <select id="backtest-model" class="form-select">
+                                <option value="overall" selected>🤖 Overall AI (Combined)</option>
+                                <option value="complex">🧠 Multi-Factor AI</option>
+                                <option value="form_momentum">📈 Form & Momentum</option>
+                                <option value="sentiment_external">🔥 Sentiment & FPL</option>
+                                <option value="simple">📊 Simple Historical</option>
+                                <option value="opponent">⚔️ Opponent-Adjusted</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Gameweeks:</label>
+                            <select id="backtest-gameweeks" class="form-select">
+                                <option value="3">Last 3 Gameweeks</option>
+                                <option value="5" selected>Last 5 Gameweeks</option>
+                                <option value="10">Last 10 Gameweeks</option>
+                            </select>
+                        </div>
+                        <div class="filter-group">
+                            <label class="filter-label">Stake per Bet:</label>
+                            <select id="backtest-stake" class="form-select">
+                                <option value="10" selected>£10</option>
+                                <option value="25">£25</option>
+                                <option value="50">£50</option>
+                                <option value="100">£100</option>
+                            </select>
+                        </div>
+                        <div class="filter-group" style="display: flex; align-items: flex-end;">
+                            <button id="run-backtest" class="btn-primary">Run Backtest</button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="backtest-loading" class="loading" style="display: none;">
+                    <div class="spinner"></div>
+                    <p>Running backtest analysis...</p>
+                </div>
+
+                <div id="backtest-results"></div>
             </div>
 
             <!-- Tab Content: Statistics -->
