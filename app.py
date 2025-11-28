@@ -62,6 +62,12 @@ FPL_TEAM_MAPPING = {
     'Sunderland': 'Sunderland'
 }
 
+def get_db():
+    """Get database connection"""
+    db = sqlite3.connect(DATABASE)
+    db.row_factory = sqlite3.Row
+    return db
+
 # Initialize database on app startup
 def init_db():
     """Initialize database with schema and import data if needed"""
@@ -182,7 +188,11 @@ def import_historical_data():
     print(f"Total matches imported: {total}")
 
 # Initialize database when module loads (for gunicorn/production)
-init_db()
+try:
+    init_db()
+except Exception as e:
+    print(f"Warning: Database initialization failed: {e}")
+    print("App will continue without database - some features may not work")
 
 # The Odds API Configuration
 ODDS_API_KEY = os.environ.get('ODDS_API_KEY', '9bc157f3e9720cc01a71655708f5c3ca')
@@ -195,12 +205,6 @@ BETFAIR_API_ENDPOINT = 'https://api.betfair.com/exchange/betting/json-rpc/v1'
 
 # Authentication
 APP_PASSWORD = 'Eva2020'
-
-def get_db():
-    """Get database connection"""
-    db = sqlite3.connect(DATABASE)
-    db.row_factory = sqlite3.Row
-    return db
 
 class AdvancedBettingAnalyzer:
     """Advanced statistical analysis engine with EV calculations"""
@@ -3516,7 +3520,23 @@ def data_summary():
         'home_away_stats': home_away
     })
 
+@app.route('/health')
+def health_check():
+    """Health check endpoint for Render"""
+    return jsonify({
+        'status': 'healthy',
+        'routes': [str(rule) for rule in app.url_map.iter_rules()][:10],
+        'database_exists': os.path.exists(DATABASE)
+    })
+
+@app.route('/ping')
+def ping():
+    """Simple ping endpoint - no auth required"""
+    return 'pong'
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 5000))
+    print(f"Starting app on port {port}...")
+    print(f"Registered routes: {[str(rule) for rule in app.url_map.iter_rules()]}")
     app.run(debug=False, host='0.0.0.0', port=port)
 
